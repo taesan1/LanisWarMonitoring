@@ -804,7 +804,6 @@
             .map((g) => g.trim());
 
         if (guilds.length > 0) {
-            addLog(`⚔️ 전쟁 페이지에서 ${guilds.length}개 길드 발견: ${guilds.join(", ")}`, "info");
         } else {
             addLog("⚠️ 전쟁 페이지에서 길드 목록을 찾을 수 없습니다.", "warn");
         }
@@ -1234,7 +1233,6 @@
                 addLog('일부 길드 데이터가 7일 이상 경과했습니다. 재수집을 권장합니다.', 'info');
             }
 
-            addLog(`${Object.keys(guilds).length}개 길드 정보 로드 완료`, 'success');
             return guilds;
         } catch (e) {
             addLog(`길드 데이터 파싱 오류: ${e.message}`, 'error');
