@@ -294,60 +294,6 @@
             return logsGuilds;
         }
     }
-
-    /**
-     * 누락된 길드 자동 수집 (백그라운드에 요청)
-
-    async function collectMissingGuilds(missingGuilds) {
-        const sortedGuilds = [...missingGuilds];
-        const cosmosIndex = sortedGuilds.findIndex(g => g === '코스모스');
-
-        if (cosmosIndex === -1) {
-            // 코스모스가 없으면 맨 앞에 추가
-            sortedGuilds.unshift('코스모스');
-            addLog('코스모스 길드를 추가하여 우선 수집합니다', 'info');
-        } else if (cosmosIndex > 0) {
-            // 코스모스가 있지만 맨 앞이 아니면 이동
-            const [cosmos] = sortedGuilds.splice(cosmosIndex, 1);
-            sortedGuilds.unshift(cosmos);
-            addLog('코스모스 길드를 우선 수집합니다', 'info');
-        } else {
-            // cosmosIndex === 0, 이미 맨 앞에 있음
-            addLog('코스모스 길드를 우선 수집합니다', 'info');
-        }
-
-        if (sortedGuilds.length === 0) {
-            addLog('수집할 길드가 없습니다', 'info');
-            return;
-        }
-
-        addLog(`${sortedGuilds.length}개 길드 수집: ${sortedGuilds.join(', ')}`, 'info');
-        addLog('자동 수집을 시작합니다. 잠시만 기다려주세요...', 'info');
-        addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
-
-        try {
-            const startTime = Date.now();
-
-            // 백그라운드로 전체 길드 리스트 전송 (실시간 피드백은 메시지로 수신)
-            const response = await chrome.runtime.sendMessage({
-                action: 'collectMissingGuilds',
-                guilds: sortedGuilds
-            });
-
-            if (response.success) {
-                const elapsed = Math.round((Date.now() - startTime) / 1000);
-                addLog(`총 소요 시간: ${elapsed}초`, 'info');
-            } else {
-                addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'error');
-                addLog(`✗ 수집 실패: ${response.error}`, 'error');
-            }
-
-        } catch (error) {
-            addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'error');
-            addLog(`✗ 수집 중 오류: ${error.message}`, 'error');
-        }
-    }
-     */
     /**
      * iframe에 길드 페이지 로드 및 데이터 수집
      */
@@ -2289,7 +2235,8 @@
 
         const minWidth = popupPosition.isMobile ? '95vw' : '600px';
         const sidebarWidth = popupPosition.isMobile ? '100%' : '150px';
-        const sidebarDisplay = popupPosition.isMobile ? 'none' : 'flex';
+        const sidebarDisplay = 'flex';
+        const sidebarFlexShrink = popupPosition.isMobile ? '0' : '0';
         popup.style.cssText = `
         position: fixed;
         ${posStyle}
@@ -2664,48 +2611,3 @@
     };
 
 })();
-
-// =====================================================
-// 백그라운드 메시지 수신
-// =====================================================
-/*
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'guildCollectProgress') {
-        const percentage = Math.round((message.current / message.total) * 100);
-        if (message.success) {
-            addLog(`[${message.current}/${message.total}] ${message.guildName} 수집 완료 (${percentage}%)`, 'success');
-        } else {
-            addLog(`[${message.current}/${message.total}] ${message.guildName} 수집 실패 (${percentage}%)`, 'error');
-        }
-    } else if (message.type === 'guildCollectComplete') {
-        const successCount = message.results.filter(r => r.success).length;
-        const failCount = message.results.filter(r => !r.success).length;
-
-        addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'success');
-        addLog(`✓ 길드 수집 완료: 성공 ${successCount}개, 실패 ${failCount}개`, 'success');
-
-        if (failCount > 0) {
-            const failedGuilds = message.results.filter(r => !r.success).map(r => r.guildName);
-            addLog(`실패한 길드: ${failedGuilds.join(', ')}`, 'error');
-        }
-
-        // 버튼 상태 업데이트
-        const autoCollectMissingBtn = document.getElementById('auto-collect-missing-btn');
-        if (autoCollectMissingBtn) {
-            autoCollectMissingBtn.disabled = false;
-            autoCollectMissingBtn.textContent = '✅ 모든 길드 수집됨';
-            autoCollectMissingBtn.style.background = '#666';
-        }
-
-        // UI 새로고침
-        setTimeout(() => {
-            const savedLogs = loadStoredLogs();
-            processAndDisplayLogs(savedLogs);
-            addLog('길드별 보기 렌더링 최신화 완료', 'success');
-
-            // window.hasMissingGuilds 초기화
-            window.hasMissingGuilds = null;
-        }, 2000);
-    }
-});
- */
