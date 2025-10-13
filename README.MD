@@ -30,13 +30,13 @@ Lanis 웹 페이지에서 사용자 경험을 향상시키기 위해 만든 **Ch
 1. 최신 릴리즈: [다운로드 ZIP](https://github.com/taesan1/LanisWarMonitoring/releases/download/V1/lanisWarMonitoring.zip)
 
 ### 1. PC(Chrome 브라우저)
-1. 최신 릴리즈 zip 파일 다운로드 후 압축 해제
-2. Chrome 브라우저에서 `chrome://extensions/` 접속   바로가기 [확장프로그램 링크](chrome://extensions/)
+1. 최신 릴리즈 zip 파일 다운로드 후 압축 해제  [다운로드 ZIP](https://github.com/taesan1/LanisWarMonitoring/releases/download/V1/lanisWarMonitoring.zip)
+2. Chrome 브라우저에서 검색창에 `chrome://extensions/`  입력 후 접속 접속   
 3. 우측 상단 **개발자 모드** 활성화
 4. **압축해제된 확장 프로그램을 로드합니다** 클릭 → 프로젝트 폴더 선택
 
 ### 2. 모바일(Android, ) 또는 구글 확장프로그램이 지원되는 브라우저
-1. 키위브라우저 접속. [링크이동](https://play.google.com/store/apps/details?id=com.kiwibrowser.browser&hl=ko&pli=1)
+1. 키위브라우저 접속. 또는 구글 확장프로그램이 지원되는 브라우저 [링크이동](https://play.google.com/store/apps/details?id=com.kiwibrowser.browser&hl=ko&pli=1)
 2. 하단 바 퍼즐 아이콘 클릭 → 확장 프로그램 선택
 3. 개발자 모드 활성화 → `+` 버튼으로 zip 파일 불러오기
 ---
