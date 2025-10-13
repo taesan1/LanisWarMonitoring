@@ -662,7 +662,7 @@
         const warGuilds = extractWarGuildsFromPage();
         if (warGuilds.length === 0) {
             addLog('수집할 길드가 없습니다. 전쟁 페이지를 확인해주세요.', 'error');
-          return;
+            return;
         }
         const guildData = loadGuildData();
 
@@ -1832,7 +1832,7 @@
 
 
     function createGuildCards(guildStatus) {
-        let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; padding: 10px;">';
+        let html = '';
 
         for (const guildName of Object.keys(guildStatus)) {
             const isSelected = selectedGuild === guildName;
@@ -1852,12 +1852,12 @@
             `;
         }
 
-        html += '</div>';
+
         return html;
     }
 
     function createVillageCards(villageStatus) {
-        let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; padding: 10px;">';
+        let html = '';
 
         for (const [villageName, stats] of Object.entries(villageStatus)) {
             const isSelected = selectedVillage === villageName;
@@ -1884,8 +1884,6 @@
                 </div>
             `;
         }
-
-        html += '</div>';
         return html;
     }
 
