@@ -1889,7 +1889,6 @@
         return html;
     }
 
-    // 🔽 [4] 기존 createGuildDetailTable 함수를 삭제하고 아래 코드로 전체 교체
     function createGuildDetailTable(guildName, members) {
         const villageStats = {};
         const logs = guildLogs[guildName] || [];
@@ -1916,7 +1915,6 @@
             return b[1].attacking - a[1].attacking;
         });
 
-        // [수정됨] 정렬 표시기(▼, ▲)를 추가하는 헬퍼 함수
         const getSortIndicator = (key) => {
             if (guildTableSort.key !== key) return '';
             return guildTableSort.dir === 'asc' ? ' ▲' : ' ▼';
@@ -1924,8 +1922,6 @@
 
         // [수정됨] 클릭 가능한 헤더 스타일
         const thSortableStyle = 'cursor: pointer; user-select: none; transition: background 0.2s;';
-        const thHoverStyle = 'this.style.background=\'#3a3a3a\'';
-        const thMouseOutStyle = 'this.style.background=\'#1a1a1a\'';
 
         let html = `
         <div style="padding: 15px;">
@@ -2003,19 +1999,19 @@
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                     <tr style="background: #1a1a1a;">
-                        <th style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}" onclick="window.setGuildSort('memberName')" onmouseover="${thHoverStyle}" onmouseout="${thMouseOutStyle}">길드원${getSortIndicator('memberName')}</th>
-                        <th style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}" onclick="window.setGuildSort('attackRemaining')" onmouseover="${thHoverStyle}" onmouseout="${thMouseOutStyle}">남은<br>공격권${getSortIndicator('attackRemaining')}</th>
-                        <th style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}" onclick="window.setGuildSort('defenseRemaining')" onmouseover="${thHoverStyle}" onmouseout="${thMouseOutStyle}">남은<br>수비권${getSortIndicator('defenseRemaining')}</th>
-                        <th style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}" onclick="window.setGuildSort('attackSuccess')" onmouseover="${thHoverStyle}" onmouseout="${thMouseOutStyle}">공격<br>성공${getSortIndicator('attackSuccess')}</th>
-                        <th style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}" onclick="window.setGuildSort('attackFail')" onmouseover="${thHoverStyle}" onmouseout="${thMouseOutStyle}">공격<br>실패${getSortIndicator('attackFail')}</th>
-                        <th style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}" onclick="window.setGuildSort('defenseSuccess')" onmouseover="${thHoverStyle}" onmouseout="${thMouseOutStyle}">수비<br>성공${getSortIndicator('defenseSuccess')}</th>
-                        <th style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}" onclick="window.setGuildSort('defenseFail')" onmouseover="${thHoverStyle}" onmouseout="${thMouseOutStyle}">수비<br>실패${getSortIndicator('defenseFail')}</th>
+                        <th class="sortable-header" data-sort-key="memberName" style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}">길드원${getSortIndicator('memberName')}</th>
+                        <th class="sortable-header" data-sort-key="attackRemaining" style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}">남은<br>공격권${getSortIndicator('attackRemaining')}</th>
+                        <th class="sortable-header" data-sort-key="defenseRemaining" style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}">남은<br>수비권${getSortIndicator('defenseRemaining')}</th>
+                        <th class="sortable-header" data-sort-key="attackSuccess" style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}">공격<br>성공${getSortIndicator('attackSuccess')}</th>
+                        <th class="sortable-header" data-sort-key="attackFail" style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}">공격<br>실패${getSortIndicator('attackFail')}</th>
+                        <th class="sortable-header" data-sort-key="defenseSuccess" style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}">수비<br>성공${getSortIndicator('defenseSuccess')}</th>
+                        <th class="sortable-header" data-sort-key="defenseFail" style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}">수비<br>실패${getSortIndicator('defenseFail')}</th>
                     </tr>
                 </thead>
                 <tbody>
         `;
 
-        // [수정됨] 정렬 로직 추가
+        // [수정됨] 정렬 로직
         // 1. members 객체를 배열로 변환
         const memberList = Object.entries(members).map(([name, stats]) => ({
             memberName: name,
@@ -2032,7 +2028,7 @@
             if (key === 'memberName') {
                 return dir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
             } else {
-                // 숫자 비교 (값이 큰 순서대로 하려면 b - a)
+                // 숫자 비교
                 return dir === 'asc' ? valA - valB : valB - valA;
             }
         });
@@ -2057,7 +2053,6 @@
         html += '</tbody></table></div>';
         return html;
     }
-    // 🔼 [4] 여기까지가 교체된 함수
 
     function createVillageDetailTable(villageName, stats) {
         const owner = villageOwnership[villageName];
@@ -2192,6 +2187,7 @@
             const savedScroll = detailView.scrollTop;
             detailView.innerHTML = generateDetailView(guildStatus, villageStatus);
             detailView.scrollTop = savedScroll;
+            attachGuildSortListeners();
         }
 
         updateLogDisplay();
@@ -2253,8 +2249,30 @@
         // 저장된 최신 데이터로 팝업을 다시 렌더링합니다.
         updateStatusPopup(lastGuildStatus, lastVillageStatus);
     }
-    // HTML의 onclick에서 접근할 수 있도록 window 객체에 할당합니다.
-    window.setGuildSort = setGuildSort;
+    function attachGuildSortListeners() {
+        const popup = document.getElementById('war-status-popup');
+        if (!popup) return;
+        // .sortable-header 클래스를 가진 모든 th 태그를 찾습니다.
+        const headers = popup.querySelectorAll('.sortable-header');
+
+        headers.forEach(th => {
+
+            th.addEventListener('mouseenter', () => {
+                if (th.style) th.style.background = '#3a3a3a';
+            });
+            th.addEventListener('mouseleave', () => {
+                if (th.style) th.style.background = '#1a1a1a';
+            });
+
+            // 클릭 리스너
+            th.addEventListener('click', () => {
+                const sortKey = th.getAttribute('data-sort-key');
+                if (sortKey) {
+                    setGuildSort(sortKey); // 1단계의 setGuildSort 함수 호출
+                }
+            });
+        });
+    }
     function createStatusPopup(guildStatus, villageStatus) {
         const existingPopup = document.getElementById('war-status-popup');
 
