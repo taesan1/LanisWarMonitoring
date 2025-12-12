@@ -13,7 +13,7 @@
  * 5. 로컬스토리지 자동 저장/불러오기 (날짜 기반)
  * 6. 누락된 길드 자동 감지 및 수집
  *
- * @version 1.3
+ * @version 1.5
  * @author WIFM
  * @license MIT
  */
@@ -81,10 +81,13 @@
     let isCollecting = false;
     let isPopupOpen = false;
     let totalNeed=[];
+    let sortState = {
+        guild: { key: 'attackRemaining', order: 'desc' }, // 길드 뷰 기본값: 남은 공격권 많은 순
+        village: { key: 'attacks', order: 'desc' }        // 마을 뷰 기본값: 공격 횟수 많은 순
+    };
     const STORAGE_KEY = 'lanis_war_logs1';
-    let guildTableSort = { key: 'memberName', dir: 'asc' }; // 기본 정렬 (이름 오름차순)
-    let lastGuildStatus = {};
-    let lastVillageStatus = {};
+    const GUILD_STORAGE_KEY = 'lanis_guild_info1';
+
     // =====================================================
     // 페이지 감지 및 초기화
     // =====================================================
@@ -114,11 +117,189 @@
     }
 
     // =====================================================
-    // 플로팅 버튼 관리
+    // 플로팅 버튼 관리  및 스타일
     // =====================================================
+    // UI 스타일 정의 (CSS 주입) - 전체 코드
+    // =====================================================
+    function injectCustomStyles() {
+        const styleId = 'lanis-war-tracker-style';
+        if (document.getElementById(styleId)) return;
 
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `
+            /* 1. 전체 팝업 컨테이너 */
+            #war-status-popup {
+                font-family: 'Pretendard', 'Malgun Gothic', sans-serif;
+                background: #1e1e24 !important;
+                border: 1px solid rgba(255, 255, 255, 0.15) !important;
+                box-shadow: 0 20px 50px rgba(0,0,0,0.8) !important;
+                color: #e0e0e0;
+                border-radius: 12px;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                font-size: 13px;
+                min-width: 400px;
+                min-height: 300px;
+            }
+
+            /* 2. 스크롤바 커스텀 */
+            #war-status-popup ::-webkit-scrollbar { width: 6px; height: 6px; }
+            #war-status-popup ::-webkit-scrollbar-track { background: #222; }
+            #war-status-popup ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+            #war-status-popup ::-webkit-scrollbar-thumb:hover { background: #777; }
+
+            /* 3. 상단 헤더 */
+            .lanis-header {
+                background: #25252b; padding: 10px 16px; border-bottom: 1px solid #333;
+                display: flex; justify-content: space-between; align-items: center;
+                height: 50px; flex-shrink: 0; cursor: move; user-select: none;
+            }
+            .lanis-title h2 { margin: 0; font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px; }
+            .lanis-title p { margin: 0; font-size: 11px; color: #aaa; margin-top: 2px;}
+
+            /* 4. 버튼 그룹 */
+            .lanis-btn-group { display: flex; gap: 6px; align-items: center; }
+            .lanis-btn {
+                padding: 5px 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;
+                font-size: 11px; font-weight: 600; cursor: pointer; color: #eee;
+                transition: all 0.2s; height: 28px; display: flex; align-items: center; justify-content: center; white-space: nowrap;
+            }
+            .lanis-btn:hover { filter: brightness(1.2); transform: translateY(-1px); }
+            .lanis-btn:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
+            
+            .btn-purple { background: #6a1b9a; border-color: #8e24aa; }
+            .btn-red { background: #c62828; border-color: #e53935; }
+            .btn-orange { background: #ef6c00; border-color: #fb8c00; }
+            .btn-blue { background: #1565c0; border-color: #1e88e5; }
+            .btn-green { background: #2e7d32; border-color: #43a047; }
+            .btn-gray { background: #424242; border-color: #616161; }
+
+            /* 5. 메인 레이아웃 */
+            .lanis-body { display: flex; flex: 1; overflow: hidden; position: relative; background: #121212; }
+            
+            /* 사이드바 */
+            .lanis-sidebar { width: 260px; background: #1a1a1e; border-right: 1px solid #333; display: flex; flex-direction: column; flex-shrink: 0; }
+            .sidebar-tabs { display: flex; padding: 8px; gap: 4px; border-bottom: 1px solid #333; background: #222; }
+            .tab-btn { flex: 1; padding: 6px; border: none; border-radius: 4px; color: #888; background: transparent; cursor: pointer; font-weight: bold; font-size: 12px; transition: 0.2s; }
+            .tab-btn:hover { background: rgba(255,255,255,0.05); color: #ccc; }
+            .tab-btn.active { background: #3f51b5; color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+            .card-container { padding: 8px; overflow-y: auto; flex: 1; }
+            .card-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+            .lanis-card {
+                background: #2c2c33; padding: 8px 10px; border-radius: 6px; cursor: pointer;
+                border: 1px solid transparent; transition: all 0.2s;
+                display: flex; flex-direction: column; justify-content: center; min-height: 50px;
+            }
+            .lanis-card:hover { background: #383840; border-color: #555; transform: translateY(-1px); }
+            .lanis-card.active { background: #303045; border-color: #5c6bc0; box-shadow: inset 0 0 0 1px #5c6bc0; }
+            .card-title { font-size: 12px; font-weight: bold; color: #fff; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .card-sub { font-size: 11px; color: #aaa; display: flex; justify-content: space-between; align-items: center; }
+
+            /* 전체 보기 카드 */
+            .total-card { 
+                border: 1px dashed #555; background: rgba(255,255,255,0.05) !important; 
+                margin-bottom: 8px; font-weight: bold; color: #fff; 
+                justify-content: center; align-items: center; text-align: center; min-height: 40px;
+            }
+            .total-card:hover { background: rgba(255,255,255,0.1) !important; border-color: #777; }
+            .total-card.active { background: #3949ab !important; border: 1px solid #7986cb; box-shadow: 0 0 8px rgba(92,107,192,0.4); }
+
+            /* 6. 메인 콘텐츠 및 통계 그리드 (여기가 핵심 수정됨) */
+            .lanis-content { flex: 1; display: flex; flex-direction: column; background: #161618; overflow: hidden; position: relative; }
+            .detail-view { flex: 1; overflow-y: auto; padding: 0; position: relative; }
+
+            /* 통계 그리드 레이아웃 */
+            .stat-grid {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr); /* 2열 고정 */
+                gap: 12px;
+                padding: 10px;
+            }
+            /* 통계 카드 스타일 */
+            .stat-card {
+                background: #25252b;
+                border-radius: 8px;
+                padding: 12px 15px;
+                display: flex; flex-direction: column; gap: 4px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+                border: 1px solid #333;
+                position: relative;
+                overflow: hidden;
+            }
+            /* 왼쪽 컬러바 */
+            .stat-card::before {
+                content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+                background: var(--card-color, #555);
+            }
+            .stat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+            .stat-title { font-size: 11px; font-weight: bold; color: var(--card-color, #aaa); text-transform: uppercase; letter-spacing: 0.5px; }
+            .stat-icon { font-size: 16px; }
+            .stat-value { font-size: 16px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .stat-sub { font-size: 11px; color: #888; margin-top: 2px; }
+            
+            /* 가로로 꽉 차는 카드 (라이벌, 로그 등) */
+            .span-2 { grid-column: span 2; }
+
+            /* 빈 화면 */
+            .empty-placeholder {
+                position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                text-align: center; color: #444; pointer-events: none;
+            }
+            .empty-icon { font-size: 48px; margin-bottom: 10px; opacity: 0.5; }
+            .empty-text { font-size: 14px; font-weight: 500; }
+
+            /* 하단 로그 패널 */
+            .log-panel { height: 180px; background: #0f0f10; border-top: 1px solid #333; display: flex; flex-direction: column; flex-shrink: 0; }
+            .log-header { padding: 4px 10px; font-size: 11px; font-weight: bold; color: #666; background: #1a1a1a; border-bottom: 1px solid #222; display: flex; justify-content: space-between; }
+            .log-body { flex: 1; overflow-y: auto; padding: 6px 10px; font-family: 'Consolas', monospace; font-size: 11px; line-height: 1.5; }
+
+            /* 7. 상세 테이블 */
+            .table-container { padding: 15px; }
+            .detail-header { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #333; display: flex; align-items: center; justify-content: space-between; }
+            .detail-header h3 { margin: 0; font-size: 16px; color: white; display: flex; align-items: center; gap: 8px; }
+            
+            .lanis-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12px; }
+            .lanis-table th {
+                position: sticky; top: 0; background: #202025; color: #bbb; padding: 8px;
+                font-weight: 600; text-align: center; border-bottom: 2px solid #444; z-index: 5; font-size: 11px;
+            }
+            .lanis-table td { padding: 6px 8px; border-bottom: 1px solid #2a2a2a; color: #ddd; vertical-align: middle; }
+            .lanis-table tr:hover td { background: rgba(255,255,255,0.03); }
+            
+            /* 유틸리티 */
+            .txt-left { text-align: left; }
+            .txt-center { text-align: center; }
+            .txt-right { text-align: right; font-family: 'Consolas', monospace; }
+            .border-r { border-right: 1px solid #333; }
+            .c-success { color: #81c784; }
+            .c-fail { color: #e57373; }
+            .c-dim { color: #555; }
+            
+            .badge { padding: 2px 5px; border-radius: 3px; font-size: 10px; margin-right: 3px; display: inline-block; margin-bottom: 2px;}
+            .bg-attack { background: rgba(239, 83, 80, 0.15); color: #ef5350; border: 1px solid rgba(239, 83, 80, 0.2); }
+            .bg-defend { background: rgba(102, 187, 106, 0.15); color: #66bb6a; border: 1px solid rgba(102, 187, 106, 0.2); }
+            .bg-clash { background: rgba(255, 167, 38, 0.15); color: #ffa726; border: 1px solid rgba(255, 167, 38, 0.2); }
+
+            #resize-handle:hover { background: linear-gradient(135deg, transparent 50%, rgba(100, 181, 246, 0.6) 50%) !important; }
+
+            /* 9. 모바일 반응형 */
+            @media (max-width: 768px) {
+                .lanis-body { flex-direction: column; }
+                .lanis-sidebar { width: 100%; height: 160px; border-right: none; border-bottom: 1px solid #333; }
+                .card-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+                
+                /* 모바일에서는 통계 카드 1열로 변경 */
+                .stat-grid { grid-template-columns: 1fr; }
+                .span-2 { grid-column: span 1; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
     function createFloatingButton() {
-        if (document.getElementById('war-tracker-btn')) return;
+        // if (document.getElementById('war-tracker-btn')) return;
 
         const btn = document.createElement('div');
         btn.id = 'war-tracker-btn';
@@ -259,6 +440,34 @@
     }
 
     // =====================================================
+    // 데이터 초기화 함수
+    // =====================================================
+    function resetStoredData() {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(GUILD_STORAGE_KEY);
+        logMessages = [];
+        Object.keys(guildLogs).forEach(key => guildLogs[key] = []);
+        Object.keys(villageLogs).forEach(key => villageLogs[key] = []);
+        villageOwnership = {};
+        totalNeed = [];
+        selectedGuild = null;
+        selectedVillage = null;
+        currentView = 'guild';
+        addLog('🗑️ 모든 데이터 초기화 완료 (로그 & 길드 정보 삭제됨)', 'success');
+        // UI 새로고침
+        const savedLogs = [];
+        const guildData = null;
+        const guildStatus = {};
+        const villageStatus = {};
+        const existingPopup = document.getElementById('war-status-popup');
+        if (existingPopup) {
+            updateStatusPopup(guildStatus, villageStatus);
+        } else {
+            createStatusPopup(guildStatus, villageStatus);
+        }
+    }
+
+    // =====================================================
     // 길드 수집 관련 함수
     // =====================================================
     /**
@@ -282,7 +491,7 @@
      * 누락된 길드 찾기
      */
     function findMissingGuilds(logsGuilds) {
-        const storedData = localStorage.getItem('lanis_guild_info1');
+        const storedData = localStorage.getItem(GUILD_STORAGE_KEY);
         if (!storedData) {
             return logsGuilds;
         }
@@ -487,8 +696,7 @@
             }
 
             // 🔸 6. 기존 데이터와 병합 / 갱신
-            const storageKey = "lanis_guild_info1";
-            const storageData = JSON.parse(localStorage.getItem(storageKey) || "{}");
+            const storageData = JSON.parse(localStorage.getItem(GUILD_STORAGE_KEY) || "{}");
 
             const oldData = storageData[guildName];
             const guildInfo = {
@@ -513,7 +721,7 @@
             }
 
             storageData[guildName] = guildInfo;
-            localStorage.setItem(storageKey, JSON.stringify(storageData));
+            localStorage.setItem(GUILD_STORAGE_KEY, JSON.stringify(storageData));
 
             console.log(`✅ ${guildName} 저장 완료 (${members.length}명)`);
             return true;
@@ -527,8 +735,7 @@
      */
     function removeGuildFromStorage(guildName) {
         try {
-            const storageKey = 'lanis_guild_info1';
-            const storedData = localStorage.getItem(storageKey);
+            const storedData = localStorage.getItem(GUILD_STORAGE_KEY);
 
             if (!storedData) return;
 
@@ -536,7 +743,7 @@
 
             if (guildInfo[guildName]) {
                 delete guildInfo[guildName];
-                localStorage.setItem(storageKey, JSON.stringify(guildInfo));
+                localStorage.setItem(GUILD_STORAGE_KEY, JSON.stringify(guildInfo));
                 console.log(`길드 삭제됨: ${guildName}`);
                 addLog(`⚠️ ${guildName} 길드를 찾을 수 없어 저장소에서 삭제했습니다`, 'error');
             }
@@ -559,8 +766,7 @@
 
     function loadStoredGuilds() {
         try {
-            const storageKey = "lanis_guild_info1";
-            const raw = localStorage.getItem(storageKey);
+            const raw = localStorage.getItem(GUILD_STORAGE_KEY);
             return raw ? JSON.parse(raw) : {};
         } catch (e) {
             console.error("길드 데이터 불러오기 오류:", e);
@@ -646,13 +852,73 @@
 
         addLog(resultMsg, 'success');
 
-        // UI 새로고침
+        // UI 새로고침 및 플레이어 정보 업데이트
         setTimeout(() => {
             const savedLogs = loadStoredLogs();
+            // 길드 정보 업데이트 후 로그 재처리 (플레이어 길드 할당)
+            updatePlayerGuildsInLogs(savedLogs);
             processAndDisplayLogs(savedLogs);
-            addLog('길드별 보기 렌더링 최신화 완료', 'success');
+            addLog('길드별 보기 렌더링 최신화 완료 (플레이어 정보 업데이트됨)', 'success');
         }, 1000);
     }
+
+    /**
+     * 저장된 로그에서 플레이어의 길드 정보를 업데이트
+     * 길드 데이터에서 플레이어 이름을 검색하여 guildName 할당
+     */
+    function updatePlayerGuildsInLogs(logs) {
+        if (logs.length === 0) return logs;
+
+        const guildData = loadStoredGuilds();
+        if (Object.keys(guildData).length === 0) {
+            addLog('길드 데이터가 없어 플레이어 정보 업데이트를 건너뜁니다.', 'warn');
+            return logs;
+        }
+
+        let updatedCount = 0;
+
+        // 공격자 길드 업데이트
+        logs.forEach(log => {
+            if (log.guildName === '길드 X' || !log.guildName) {
+                const attackerGuild = findGuildByMember(guildData, log.memberName);
+                if (attackerGuild) {
+                    log.guildName = attackerGuild;
+                    updatedCount++;
+                }
+            }
+
+            // 수비자 길드 업데이트
+            if (log.defenderName && (log.defenderGuild === '길드 X' || !log.defenderGuild)) {
+                const defenderGuild = findGuildByMember(guildData, log.defenderName);
+                if (defenderGuild) {
+                    log.defenderGuild = defenderGuild;
+                    updatedCount++;
+                }
+            }
+        });
+
+        if (updatedCount > 0) {
+            saveStoredLogs(logs);
+            addLog(`플레이어 길드 정보 업데이트: ${updatedCount}건`, 'success');
+        }
+
+        return logs;
+    }
+
+    /**
+     * 길드 데이터에서 멤버 이름으로 길드명 찾기
+     */
+    function findGuildByMember(guildData, memberName) {
+        if (!memberName) return null;
+
+        for (const [guildName, guildInfo] of Object.entries(guildData)) {
+            if (guildInfo.members && guildInfo.members.some(m => m.nickname === memberName)) {
+                return guildName;
+            }
+        }
+        return null;
+    }
+
     /**
      * 길드 수집 버튼 상태 업데이트
      */
@@ -705,14 +971,31 @@
     /**
      * 전쟁 페이지 테이블에서 참여 길드 목록 추출
      */
+    /**
+     * 전쟁 페이지 테이블에서 참여 길드 목록 추출 (다크/라이트 모드 호환 패치)
+     */
     function extractWarGuildsFromPage() {
         const guildSet = new Set();
 
         try {
-            // 🔸 전쟁 참여 길드 테이블 컨테이너
-            const warTable = document.querySelector(
-                "#root > div:nth-child(2) > div:nth-child(1) > div > div.MuiBox-root.css-zwlyuw > div.MuiPaper-root.MuiPaper-elevation.MuiPaper-rounded.MuiPaper-elevation0.css-kapcme > div > div.war-interactive-area.MuiBox-root.css-0 > div.MuiBox-root.css-yuipcy"
-            );
+            // [수정됨] 테마별 선택자들을 배열로 관리하여 순차적으로 찾습니다.
+            const targetSelectors = [
+                ".MuiPaper-root.css-1kukkbt .war-interactive-area .MuiBox-root.css-yuipcy",
+                ".MuiPaper-root.css-1mg2w7 .war-interactive-area .MuiBox-root.css-yuipcy",
+                ".war-interactive-area > div.MuiBox-root"
+            ];
+
+            let warTable = null;
+
+            // 유효한 테이블 컨테이너 찾기
+            for (const selector of targetSelectors) {
+                const el = document.querySelector(selector);
+                if (el) {
+                    warTable = el;
+                    // addLog(`길드 목록 컨테이너 찾음: ${selector}`, 'info'); // 디버깅용
+                    break;
+                }
+            }
 
             if (warTable) {
                 // 🔹 대표적인 길드명 위치 (MuiChip, Typography 등)
@@ -722,26 +1005,19 @@
 
                 guildElements.forEach((el) => {
                     const text = el.textContent.trim();
-                    // 숫자만 또는 너무 짧거나 긴 텍스트는 제외
+                    // 숫자만 있거나, 너무 짧/긴 텍스트, "VS" 등 제외
                     if (text && text.length >= 2 && text.length <= 20 && !/^\d+$/.test(text)) {
                         guildSet.add(text);
                     }
                 });
+            } else {
+                // 컨테이너를 못 찾았더라도 페이지 전체에서 'war-interactive-area' 근처를 훑어보는 비상 로직
+                const fallbackArea = document.querySelector('.war-interactive-area');
+                if (fallbackArea) {
+                    fallbackArea.querySelectorAll(".MuiChip-label").forEach(el => guildSet.add(el.textContent.trim()));
+                }
             }
 
-            // 🔸 보조 탐색 (행 단위로 검사)
-            if (guildSet.size === 0 && warTable) {
-                const rows = warTable.querySelectorAll("tr, .MuiTableRow-root");
-                rows.forEach((row) => {
-                    const cells = row.querySelectorAll("td, .MuiTableCell-root, .MuiTypography-root");
-                    cells.forEach((cell) => {
-                        const text = cell.textContent.trim();
-                        if (text && text.length >= 2 && text.length <= 20 && !/^\d+$/.test(text)) {
-                            guildSet.add(text);
-                        }
-                    });
-                });
-            }
         } catch (error) {
             console.error("길드 목록 추출 중 오류:", error);
         }
@@ -751,9 +1027,8 @@
             .filter((g) => g && g !== "무소속" && !g.includes("VS"))
             .map((g) => g.trim());
 
-        if (guilds.length > 0) {
-        } else {
-            addLog("⚠️ 전쟁 페이지에서 길드 목록을 찾을 수 없습니다.", "warn");
+        if (guilds.length === 0) {
+            addLog("⚠️ 전쟁 페이지에서 길드 목록을 찾을 수 없습니다. (선택자 불일치)", "warn");
         }
 
         return guilds;
@@ -867,11 +1142,13 @@
             }
         }
 
-        // UI 새로고침
+        // UI 새로고침 및 플레이어 정보 업데이트
         setTimeout(() => {
             const savedLogs = loadStoredLogs();
+            // 길드 정보 업데이트 후 로그 재처리 (플레이어 길드 할당)
+            updatePlayerGuildsInLogs(savedLogs);
             processAndDisplayLogs(savedLogs);
-            addLog('길드별 보기 렌더링 최신화 완료', 'success');
+            addLog('길드별 보기 렌더링 최신화 완료 (플레이어 정보 업데이트됨)', 'success');
         }, 1000);
     }
 
@@ -1000,6 +1277,7 @@
     function analyzeWarStatus(guilds, logs) {
         const guildStatus = {};
 
+        // 1. 길드 데이터 초기화
         for (const [guildName, members] of Object.entries(guilds)) {
             guildStatus[guildName] = {};
             members.forEach(member => {
@@ -1018,36 +1296,81 @@
             return guildStatus;
         }
 
-        logs.forEach(log => {
+        // 2. 로그를 시간 오름차순(과거->미래)으로 정렬하여 흐름 파악
+        const sortedLogs = [...logs].sort((a, b) => a.date.localeCompare(b.date));
+
+        // 3. 중복 방지를 위한 마지막 행동 추적 맵
+        const lastActionMap = {};
+
+        // 시간 문자열에서 '초' 단위 시간을 추출하는 헬퍼 함수
+        const getTimeInSeconds = (dateStr) => {
+            const match = dateStr.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+            if (!match) return 0;
+            return parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3]);
+        };
+
+        sortedLogs.forEach(log => {
             if (!log.isAttack) return;
 
-            const attackerGuild = guildStatus[log.guildName];
-            if (attackerGuild) {
-                let attackerData = attackerGuild[log.memberName];
+            // 공격자 데이터 가져오기 (없으면 생성)
+            let attackerGuild = guildStatus[log.guildName];
+            if (!attackerGuild) {
+                guildStatus[log.guildName] = {};
+                attackerGuild = guildStatus[log.guildName];
+            }
 
-                if (!attackerData) {
-                    attackerGuild[log.memberName] = {
-                        attackRemaining: 8,
-                        defenseRemaining: 4,
-                        attackSuccess: 0,
-                        attackFail: 0,
-                        defenseSuccess: 0,
-                        defenseFail: 0
-                    };
-                    attackerData = attackerGuild[log.memberName];
-                }
+            let attackerData = attackerGuild[log.memberName];
+            if (!attackerData) {
+                attackerGuild[log.memberName] = {
+                    attackRemaining: 8,
+                    defenseRemaining: 4,
+                    attackSuccess: 0,
+                    attackFail: 0,
+                    defenseSuccess: 0,
+                    defenseFail: 0
+                };
+                attackerData = attackerGuild[log.memberName];
+            }
 
-                if (attackerData.attackRemaining > 0) {
-                    attackerData.attackRemaining--;
-                }
+            // =====================================================
+            // [핵심 수정] 요새 파괴 -> 마을 점령 중복 카운트 방지
+            // =====================================================
+            let isDuplicate = false;
+            const uniqueKey = `${log.guildName}_${log.memberName}`; // 길드+이름으로 식별
+            const currentTime = getTimeInSeconds(log.date);
 
-                if (log.isSuccess) {
-                    attackerData.attackSuccess++;
-                } else {
-                    attackerData.attackFail++;
+            if (lastActionMap[uniqueKey]) {
+                const lastLog = lastActionMap[uniqueKey].log;
+                const lastTime = lastActionMap[uniqueKey].time;
+
+                // 1. 이전 행동과 2초 이내의 아주 짧은 간격인지 확인
+                if (Math.abs(currentTime - lastTime) <= 2) {
+                    // 2. 하나는 '요새', 하나는 '요새가 아님(마을)'인 경우 -> 세트 행동으로 간주
+                    if (lastLog.isFortress !== log.isFortress) {
+                        isDuplicate = true;
+                    }
                 }
             }
 
+            // 현재 행동을 마지막 행동으로 기록 (중복이든 아니든 시간 갱신)
+            lastActionMap[uniqueKey] = { log: log, time: currentTime };
+
+            // 중복된 행동(세트 행동)이면 통계에 반영하지 않고 건너뜀
+            if (isDuplicate) {
+                return;
+            }
+            // =====================================================
+
+            // 공격권 차감 (0 이하로도 내려가도록 조건문 제거함)
+            attackerData.attackRemaining--;
+
+            if (log.isSuccess) {
+                attackerData.attackSuccess++;
+            } else {
+                attackerData.attackFail++;
+            }
+
+            // 수비자 처리 로직
             if (log.defenderName && !log.isFortress) {
                 let defenderGuild = log.defenderGuild;
 
@@ -1132,7 +1455,7 @@
     // =====================================================
 
     function loadGuildData() {
-        const stored = localStorage.getItem('lanis_guild_info1');
+        const stored = localStorage.getItem(GUILD_STORAGE_KEY);
         if (!stored) {
             addLog('길드 정보가 없습니다.', 'error');
             return null;
@@ -1273,7 +1596,7 @@
         addLog(`${logRows.length}개의 로그 행 발견`, 'info');
 
         const logs = [];
-        const stored = localStorage.getItem('lanis_guild_info');
+        const stored = localStorage.getItem(GUILD_STORAGE_KEY);
         const guildData = stored ? JSON.parse(stored) : {};
 
         let parsedCount = 0;
@@ -1308,7 +1631,6 @@
                     return;
                 }
                 const dateLabel = timeElement.getAttribute('aria-label');
-
 
                 // 당일 날짜 체크
                 if (!dateLabel.startsWith(todayDate)) {
@@ -1347,7 +1669,17 @@
                 const village = villageChip ? villageChip.textContent.trim() : '알 수 없음';
 
                 const attackerName = cells[3].textContent.trim();
-                const attackerGuild = cells[4].textContent.trim();
+                let attackerGuild = cells[4].textContent.trim();
+
+                // 공격자 길드명이 없거나 '길드 X'인 경우, 길드 데이터에서 검색
+                if (!attackerGuild || attackerGuild === '길드 X') {
+                    const foundGuild = findGuildByMember(guildData, attackerName);
+                    if (foundGuild) {
+                        attackerGuild = foundGuild;
+                    } else {
+                        attackerGuild = '길드 X';
+                    }
+                }
 
                 const defenderName = cells[5].textContent.trim();
                 const isFortress = defenderName.includes('요새');
@@ -1453,7 +1785,9 @@
                 addLog('새 로그 없음', 'info');
             }
 
-            saveStoredLogs(mergedLogs);
+            // 플레이어 길드 정보 업데이트
+            const updatedLogs = updatePlayerGuildsInLogs(mergedLogs);
+            saveStoredLogs(updatedLogs);
 
             // 길드 데이터 체크
             const guildData = loadGuildData();
@@ -1463,13 +1797,16 @@
                 return;
             }
 
-            processAndDisplayLogs(mergedLogs);
+            processAndDisplayLogs(updatedLogs);
         } else {
             addLog('파싱된 로그 없음', 'info');
             if (currentLogs.length > 0) {
+                // 기존 로그 업데이트
+                const updatedLogs = updatePlayerGuildsInLogs(currentLogs);
+                saveStoredLogs(updatedLogs);
                 const guildData = loadGuildData();
                 if (guildData) {
-                    processAndDisplayLogs(currentLogs);
+                    processAndDisplayLogs(updatedLogs);
                 }
             }
         }
@@ -1606,178 +1943,225 @@
         logContainer.scrollTop = logContainer.scrollHeight;
     }
 
+// =====================================================
+    // 2. 통계 계산 로직 (상세 데이터 추가 수집)
+    // =====================================================
     function calculateStatistics(logs) {
-        if (logs.length === 0) return null;
+        if (!logs || logs.length === 0) return null;
 
         const stats = {
-            topAttacker: { name: '', guild: '', count: 0 },
-            topDefender: { name: '', guild: '', count: 0 },
-            worstAttacker: { name: '', guild: '', count: 0 },
-            fortressVillage: { name: '', count: 0 },
-            hottestVillage: { name: '', count: 0 },
+            topAttacker: { name: '-', guild: '-', count: 0 },
+            topDefender: { name: '-', guild: '-', count: 0 },
+            worstAttacker: { name: '-', guild: '-', count: 0 },
+            pacifist: { name: '-', guild: '-', count: 0 },
+            // [수정] 라이벌 상세 정보 (승수 포함)
+            nemesis: { p1: '-', p2: '-', p1Wins: 0, p2Wins: 0, count: 0 },
+            hottestVillage: { name: '-', count: 0 },
+            fortressVillage: { name: '-', count: 0 },
+            ironWallGuild: { name: '-', rate: 0, win: 0, total: 0 },
+            spearGuild: { name: '-', win: 0, total: 0 },
+            fireGuild: { name: '-', fail: 0, total: 0 },
+            mostActiveGuild: { name: '-', count: 0, att: 0, def: 0 },
             capturedVillages: []
         };
 
-        const attackSuccess = {};
-        const defenseSuccess = {};
-        const attackFail = {};
+        const attackers = {};
+        const defenders = {};
         const villageAttacks = {};
         const fortressAttacks = {};
-        const villageOwnership = {};
+        const rivalries = {}; // { key: { p1, p2, p1Wins, p2Wins, total } }
+        const guildStats = {};
+        const villageOwner = {};
 
         const sortedLogs = [...logs].sort((a, b) => a.date.localeCompare(b.date));
 
         sortedLogs.forEach(log => {
             if (!log.isAttack) return;
 
-            const attackerKey = `${log.guildName}:${log.memberName}`;
-            if (log.isSuccess) {
-                attackSuccess[attackerKey] = (attackSuccess[attackerKey] || 0) + 1;
-            } else {
-                attackFail[attackerKey] = (attackFail[attackerKey] || 0) + 1;
-            }
-
-            if (log.isFortress) {
-                fortressAttacks[log.village] = (fortressAttacks[log.village] || 0) + 1;
-            }
-
-            if (log.isCaptureResult && !log.isFortress) {
-                const prevOwner = villageOwnership[log.village];
-                const fromGuild = prevOwner && prevOwner !== '길드 X' ? prevOwner : '-';
-                const toGuild = log.guildName && log.guildName !== '길드 X' ? log.guildName : '-';
-
-                villageOwnership[log.village] = log.guildName;
-
-                stats.capturedVillages.push({
-                    village: log.village,
-                    from: fromGuild,
-                    to: toGuild,
-                    time: log.date.match(/(\d{2}:\d{2}:\d{2})/)?.[0] || ''
-                });
-            } else if (log.isSuccess && !log.isFortress && !villageOwnership[log.village]) {
-                if (log.defenderGuild && log.defenderGuild !== '길드 X') {
-                    villageOwnership[log.village] = log.defenderGuild;
-                }
-            }
+            // 개인 통계
+            const attKey = log.memberName;
+            if (!attackers[attKey]) attackers[attKey] = { success: 0, fail: 0, guild: log.guildName };
+            if (log.isSuccess) attackers[attKey].success++; else attackers[attKey].fail++;
 
             if (log.defenderName && !log.isFortress) {
-                const defenderGuild = log.defenderGuild || '길드 X';
-                const defenderKey = `${defenderGuild}:${log.defenderName}`;
+                const defKey = log.defenderName;
+                if (!defenders[defKey]) defenders[defKey] = { success: 0, fail: 0, guild: log.defenderGuild || '길드 X' };
+                if (log.isSuccess) defenders[defKey].fail++; else defenders[defKey].success++;
 
-                if (!log.isSuccess) {
-                    defenseSuccess[defenderKey] = (defenseSuccess[defenderKey] || 0) + 1;
+                // [수정] 라이벌 승패 로직
+                // 이름을 정렬해서 항상 같은 키가 되도록 함 (예: '가 vs 나', '나 vs 가' 통일)
+                const names = [log.memberName, log.defenderName].sort();
+                const p1 = names[0];
+                const p2 = names[1];
+                const pairKey = `${p1} vs ${p2}`;
+
+                if (!rivalries[pairKey]) {
+                    rivalries[pairKey] = { p1, p2, p1Wins: 0, p2Wins: 0, total: 0 };
+                }
+                rivalries[pairKey].total++;
+
+                // 승자 판별
+                // 공격 성공시: 공격자가 승리 / 방어 성공시: 수비자가 승리
+                const winner = log.isSuccess ? log.memberName : log.defenderName;
+
+                if (winner === p1) rivalries[pairKey].p1Wins++;
+                else rivalries[pairKey].p2Wins++;
+            }
+
+            // 마을/요새
+            villageAttacks[log.village] = (villageAttacks[log.village] || 0) + 1;
+            if (log.isFortress) fortressAttacks[log.village] = (fortressAttacks[log.village] || 0) + 1;
+
+            // 길드
+            const attGuild = log.guildName;
+            if (attGuild && attGuild !== '길드 X') {
+                if (!guildStats[attGuild]) guildStats[attGuild] = { attWin: 0, attFail: 0, defWin: 0, defFail: 0 };
+                if (log.isSuccess) guildStats[attGuild].attWin++; else guildStats[attGuild].attFail++;
+            }
+            const defGuild = log.defenderGuild;
+            if (defGuild && defGuild !== '길드 X' && !log.isFortress) {
+                if (!guildStats[defGuild]) guildStats[defGuild] = { attWin: 0, attFail: 0, defWin: 0, defFail: 0 };
+                if (log.isSuccess) guildStats[defGuild].defFail++; else guildStats[defGuild].defWin++;
+            }
+
+            // 점령
+            if (log.isCaptureResult) {
+                const prev = villageOwner[log.village] || '-';
+                villageOwner[log.village] = log.guildName;
+                stats.capturedVillages.push({
+                    village: log.village, from: prev, to: log.guildName,
+                    time: log.date.match(/(\d{2}:\d{2}:\d{2})/)?.[0] || ''
+                });
+            } else if (log.isSuccess && !log.isFortress && !villageOwner[log.village]) {
+                if (log.defenderGuild && log.defenderGuild !== '길드 X') {
+                    villageOwner[log.village] = log.defenderGuild;
                 }
             }
-
-            villageAttacks[log.village] = (villageAttacks[log.village] || 0) + 1;
         });
 
-        for (const [key, count] of Object.entries(attackSuccess)) {
-            if (count > stats.topAttacker.count) {
-                const [guild, name] = key.split(':');
-                stats.topAttacker = { name, guild, count };
+        // 결과 분석
+        for (const [name, data] of Object.entries(attackers)) {
+            if (data.success > stats.topAttacker.count) stats.topAttacker = { name, guild: data.guild, count: data.success };
+            if (data.fail > stats.worstAttacker.count) stats.worstAttacker = { name, guild: data.guild, count: data.fail };
+            if (data.success === 0 && data.fail >= 3 && data.fail > stats.pacifist.count) stats.pacifist = { name, guild: data.guild, count: data.fail };
+        }
+        for (const [name, data] of Object.entries(defenders)) {
+            if (data.success > stats.topDefender.count) stats.topDefender = { name, guild: data.guild, count: data.success };
+        }
+
+        // [수정] 라이벌 최댓값 찾기
+        for (const [key, data] of Object.entries(rivalries)) {
+            if (data.total > stats.nemesis.count) {
+                stats.nemesis = {
+                    p1: data.p1,
+                    p2: data.p2,
+                    p1Wins: data.p1Wins,
+                    p2Wins: data.p2Wins,
+                    count: data.total
+                };
             }
         }
 
-        for (const [key, count] of Object.entries(defenseSuccess)) {
-            if (count > stats.topDefender.count) {
-                const [guild, name] = key.split(':');
-                stats.topDefender = { name, guild, count };
-            }
+        for (const [v, c] of Object.entries(villageAttacks)) {
+            if (c > stats.hottestVillage.count) stats.hottestVillage = { name: v, count: c };
+        }
+        for (const [v, c] of Object.entries(fortressAttacks)) {
+            if (c > stats.fortressVillage.count) stats.fortressVillage = { name: v, count: c };
         }
 
-        for (const [key, count] of Object.entries(attackFail)) {
-            if (count > stats.worstAttacker.count) {
-                const [guild, name] = key.split(':');
-                stats.worstAttacker = { name, guild, count };
+        for (const [gName, d] of Object.entries(guildStats)) {
+            const attTotal = d.attWin + d.attFail;
+            const defTotal = d.defWin + d.defFail;
+            const totalActivity = attTotal + defTotal;
+
+            if (d.attWin > stats.spearGuild.win) stats.spearGuild = { name: gName, win: d.attWin, total: attTotal };
+            if (d.attFail > stats.fireGuild.fail) stats.fireGuild = { name: gName, fail: d.attFail, total: attTotal };
+
+            if (defTotal >= 5) {
+                const rate = (d.defWin / defTotal) * 100;
+                if (rate > stats.ironWallGuild.rate || (rate === stats.ironWallGuild.rate && defTotal > stats.ironWallGuild.total)) {
+                    stats.ironWallGuild = { name: gName, rate: rate, win: d.defWin, total: defTotal };
+                }
+            }
+            if (totalActivity > stats.mostActiveGuild.count) {
+                stats.mostActiveGuild = { name: gName, count: totalActivity, att: attTotal, def: defTotal };
             }
         }
-
-        for (const [village, count] of Object.entries(fortressAttacks)) {
-            if (count > stats.fortressVillage.count) {
-                stats.fortressVillage = { name: village, count };
-            }
-        }
-
-        for (const [village, count] of Object.entries(villageAttacks)) {
-            if (count > stats.hottestVillage.count) {
-                stats.hottestVillage = { name: village, count };
-            }
-        }
-
         return stats;
     }
 
+// =====================================================
+    // 3. 뷰 생성 (플레이어 이름 옆에 길드명 표시)
+    // =====================================================
     function createStatisticsView(logs, isToday = false) {
         const stats = calculateStatistics(logs);
+        if (!stats) return '<div class="empty-placeholder"><div class="empty-text">데이터 부족</div></div>';
 
-        if (!stats) {
-            return '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #888; font-size: 16px;">통계 데이터가 없습니다</div>';
-        }
+        const title = isToday ? '오늘의 하이라이트' : '지난 전쟁 하이라이트';
 
-        const title = isToday ? '오늘의 전쟁 통계' : '어제의 전쟁 통계';
+        const mkCard = (icon, label, color, content, isFullWidth = false) => `
+            <div class="stat-card ${isFullWidth ? 'span-2' : ''}" style="--card-color: ${color};">
+                <div class="stat-header">
+                    <span class="stat-title">${label}</span>
+                    <span class="stat-icon">${icon}</span>
+                </div>
+                ${content}
+            </div>
+        `;
+
+        // [수정됨] 이름 (길드명) 형태로 변경
+        const pInfo = (d, sub) => `
+            <div class="stat-value">
+                ${d.name} <span style="font-size:11px; color:#aaa; font-weight:normal;">(${d.guild})</span>
+            </div>
+            <div class="stat-sub">${d.count}${sub}</div>
+        `;
+
+        const gInfo = (d, sub) => `<div class="stat-value">${d.name}</div><div class="stat-sub">${sub}</div>`;
 
         return `
-            <div style="padding: 10px; overflow-y: auto; height: 100%;">
-                <h3 style="margin: 0 0 20px 0; color: #ffffff; text-align: center;">${title}</h3>
+            <div style="padding: 15px; height: 100%; overflow-y:auto;">
+                <h3 style="margin: 0 0 15px 0; color: #fff; font-size: 16px; text-align: center;">${title}</h3>
+                
+                <div class="stat-grid">
+                    ${mkCard('🏆', '공격왕', '#ffd700', stats.topAttacker.count > 0 ? pInfo(stats.topAttacker, '승') : '<span style="color:#555">-</span>')}
+                    ${mkCard('🛡️', '방어왕', '#42a5f5', stats.topDefender.count > 0 ? pInfo(stats.topDefender, '방어') : '<span style="color:#555">-</span>')}
 
-                <div style="display: grid; gap: 5px;">
-                    ${stats.topAttacker.count > 0 ? `
-                        <div style="background: #1a4d1a; padding: 5px; border-radius: 8px; border: 2px solid #2d7a2d;">
-                            <h4 style="margin: 0 0 10px 0; color: #4f4; font-size: 16px;">🏆 최다 공격 승리자</h4>
-                            <p style="margin: 5px 0; color: #ffffff; font-size: 18px; font-weight: bold;">${stats.topAttacker.guild} ${stats.topAttacker.name}</p>
-                            <p style="margin: 5px 0 0 0; color: #8f8; font-size: 14px;">${stats.topAttacker.count}회 승리</p>
-                        </div>
-                    ` : ''}
+                    ${mkCard('💔', '최다 실패', '#ef5350', stats.worstAttacker.count > 0 ? pInfo(stats.worstAttacker, '실패') : '<span style="color:#555">-</span>')}
+                    ${mkCard('🕊️', '평화주의자', '#81c784', stats.pacifist.count > 0 ? pInfo(stats.pacifist, '패 (0승)') : '<div class="stat-sub" style="color:#555">대상 없음</div>')}
 
-                    ${stats.topDefender.count > 0 ? `
-                        <div style="background: #1a3d4d; padding: 5px; border-radius: 8px; border: 2px solid #2d5a7a;">
-                            <h4 style="margin: 0 0 10px 0; color: #4af; font-size: 16px;">🛡️ 최다 방어 성공자</h4>
-                            <p style="margin: 5px 0; color: #ffffff; font-size: 18px; font-weight: bold;">${stats.topDefender.guild} ${stats.topDefender.name}</p>
-                            <p style="margin: 5px 0 0 0; color: #8cf; font-size: 14px;">${stats.topDefender.count}회 방어 성공</p>
-                        </div>
-                    ` : ''}
+        ${stats.nemesis.count > 0
+            ? mkCard('⚔️', '숙명의 라이벌', '#ab47bc',
+                `<div style="display:flex; justify-content:space-between; align-items:center; font-size:14px; font-weight:bold; color:#fff;">
+                                <span>${stats.nemesis.p1} </span>
+                                <span style="font-size:10px; color:#aaa; margin:0 5px;">VS</span>
+                                <span>${stats.nemesis.p2} </span>
+                            </div>
+                            <div class="stat-sub" style="text-align:right;">( ${stats.nemesis.p1Wins} : ${stats.nemesis.p2Wins} )    총 ${stats.nemesis.count}회 교전</div>`, true)
+            : ''}
+                    
+                    ${mkCard('🔥', '최다 접전지', '#ff7043', stats.hottestVillage.count > 0 ? `<div class="stat-value">${stats.hottestVillage.name}</div><div class="stat-sub">${stats.hottestVillage.count}회 전투</div>` : '<span style="color:#555">-</span>')}
+                    ${mkCard('🏰', '요새 발견', '#7e57c2', stats.fortressVillage.count > 0 ? `<div class="stat-value">${stats.fortressVillage.name}</div><div class="stat-sub">${stats.fortressVillage.count}회 공격</div>` : '<div class="stat-sub">발견 안됨</div>')}
 
-                    ${stats.hottestVillage.count > 0 ? `
-                        <div style="background: #4d3d1a; padding: 5px; border-radius: 8px; border: 2px solid #7a5a2d;">
-                            <h4 style="margin: 0 0 10px 0; color: #fa4; font-size: 16px;">🔥 최다 접전 마을</h4>
-                            <p style="margin: 5px 0; color: #ffffff; font-size: 18px; font-weight: bold;">${stats.hottestVillage.name}</p>
-                            <p style="margin: 5px 0 0 0; color: #fc8; font-size: 14px;">${stats.hottestVillage.count}회 전투</p>
-                        </div>
-                    ` : ''}
+                    ${mkCard('🧱', '철벽 길드', '#90caf9', stats.ironWallGuild.total > 0 ? gInfo(stats.ironWallGuild, `방어율 ${Math.round(stats.ironWallGuild.rate)}% <span style="color:#aaa; font-size:10px;">(${stats.ironWallGuild.win}/${stats.ironWallGuild.total}회 방어)</span>`) : '<span style="color:#555">-</span>')}
+                    
+                    ${mkCard('🎋', '죽창 길드', '#c6ff00', stats.spearGuild.total > 0 ? gInfo(stats.spearGuild, `공격 성공 ${stats.spearGuild.win}회 <span style="color:#aaa; font-size:10px;">(총 ${stats.spearGuild.total}회 시도)</span>`) : '<span style="color:#555">-</span>')}
 
-                    ${stats.worstAttacker.count > 0 ? `
-                        <div style="background: #4d1a1a; padding: 5px; border-radius: 8px; border: 2px solid #7a2d2d;">
-                            <h4 style="margin: 0 0 10px 0; color: #f44; font-size: 16px;">💔 최다 공격 실패자</h4>
-                            <p style="margin: 5px 0; color: #ffffff; font-size: 18px; font-weight: bold;">${stats.worstAttacker.guild} ${stats.worstAttacker.name}</p>
-                            <p style="margin: 5px 0 0 0; color: #f88; font-size: 14px;">${stats.worstAttacker.count}회 실패</p>
-                        </div>
-                    ` : ''}
-
-                    ${stats.fortressVillage.count > 0 ? `
-                        <div style="background: #3d2a4d; padding: 5px; border-radius: 8px; border: 2px solid #5a3d7a;">
-                            <h4 style="margin: 0 0 10px 0; color: #f4f; font-size: 16px;">🏰 요새가 보인 마을</h4>
-                            <p style="margin: 5px 0; color: #ffffff; font-size: 18px; font-weight: bold;">${stats.fortressVillage.name}</p>
-                            <p style="margin: 5px 0 0 0; color: #f8f; font-size: 14px;">${stats.fortressVillage.count}회 요새 공격</p>
-                        </div>
-                    ` : ''}
+                    ${mkCard('📢', '최다 참여 길드', '#ffca28', stats.mostActiveGuild.count > 0 ? gInfo(stats.mostActiveGuild, `총 ${stats.mostActiveGuild.count}전 <span style="color:#aaa; font-size:10px;">(공${stats.mostActiveGuild.att} / 방${stats.mostActiveGuild.def})</span>`) : '<span style="color:#555">-</span>')}
+                    
+                    ${mkCard('🧨', '불장난 길드', '#ffab91', stats.fireGuild.total > 0 ? gInfo(stats.fireGuild, `공격 실패 ${stats.fireGuild.fail}회 <span style="color:#aaa; font-size:10px;">(총 ${stats.fireGuild.total}회 시도)</span>`) : '<span style="color:#555">-</span>')}
 
                     ${stats.capturedVillages.length > 0 ? `
-                        <div style="background: #2a2a1a; padding: 5px; border-radius: 8px; border: 2px solid #5a5a2d;">
-                            <h4 style="margin: 0 0 10px 0; color: #ff4; font-size: 16px;">⚔️ 마을 점령/탈환 (${stats.capturedVillages.length}회)</h4>
-                            ${stats.capturedVillages.map(capture => {
-            const fromGuild = capture.from && capture.from !== '길드 X' ? capture.from : '-';
-            const toGuild = capture.to && capture.to !== '길드 X' ? capture.to : '-';
-            const action = (fromGuild === '-' ? '점령했습니다' : '탈환했습니다');
-
-            return `
-                                    <div style="padding: 8px; margin: 5px 0; background: #1a1a1a; border-radius: 4px;">
-                                        <p style="margin: 0; color: #ffffff; font-size: 14px;">
-                                            ${toGuild} 길드가 ${fromGuild !== '-' ? fromGuild + ' 길드로부터 ' : ''}${capture.village} 마을을 ${action}
-                                        </p>
-                                        <p style="margin: 3px 0 0 0; color: #888; font-size: 11px;">${capture.time}</p>
-                                    </div>
-                                `;
+                        <div class="span-2" style="margin-top:5px;">
+                            <div style="font-size:11px; color:#777; margin-bottom:5px; border-bottom:1px solid #333; padding-bottom:3px;">🚩 마을 점령 로그</div>
+                            ${stats.capturedVillages.map(c => {
+            const isTakeback = c.from !== '-';
+            return `<div style="display:flex; gap:8px; padding:4px 0; border-bottom:1px dashed #333; font-size:12px; align-items:center;">
+                                    <span style="color:#666; font-size:10px;">${c.time}</span>
+                                    <span style="color:${isTakeback?'#ffb74d':'#69f0ae'}; font-weight:bold;">${c.to}</span>
+                                    <span style="color:#aaa;">${c.village}</span>
+                                    <span style="font-size:10px; color:#555;">${isTakeback ? '(탈환)' : '(점령)'}</span>
+                                </div>`;
         }).join('')}
                         </div>
                     ` : ''}
@@ -1785,106 +2169,88 @@
             </div>
         `;
     }
-
     function generateDetailView(guildStatus, villageStatus) {
-        const isMobile = window.innerWidth <= 768;
-
         if (!selectedGuild && !selectedVillage) {
             const savedLogs = loadStoredLogs();
 
             if (savedLogs.length > 0) {
                 const now = new Date();
-                const koreaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-                const currentHour = koreaTime.getHours();
-                const isWarTime = currentHour >= 21 && currentHour < 22;
-                const isAfterWar = currentHour >= 22;
+                const currentHour = now.getHours();
+                const isWarTime = currentHour >= 21; // 대략적인 전쟁 시간
+                const statsView = createStatisticsView(savedLogs, isWarTime);
 
-                const statsView = createStatisticsView(savedLogs, isWarTime || isAfterWar);
-
-                // 모바일일 때는 스타일 래핑
-                return `
-                <div style="width: ${isMobile ? '100vw' : '100%'}; 
-                            height: ${isMobile ? 'auto' : '100%'}; 
-                            overflow-y: auto;">
-                    ${statsView}
-                </div>`;
+                return `<div style="padding: 20px; height: 100%;">${statsView}</div>`;
             } else {
                 return `
-                <div style="display: flex; align-items: center; justify-content: center;
-                            height: ${isMobile ? '50vh' : '100%'}; color: #888; font-size: 15px;">
-                    아직 수집된 로그가 없습니다
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #666;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">📊</div>
+                    <div style="font-size: 16px;">수집된 데이터가 없습니다</div>
+                    <div style="font-size: 12px; margin-top: 5px;">로그 수집 버튼을 눌러주세요</div>
                 </div>`;
             }
         }
 
         if (currentView === 'guild' && selectedGuild) {
-            const content = createGuildDetailTable(selectedGuild, guildStatus[selectedGuild]);
-            return `<div style="width:${isMobile ? '100vw' : '100%'}; height:${isMobile ? 'auto' : '100%'}; overflow-y:auto;">${content}</div>`;
+            return createGuildDetailTable(selectedGuild, guildStatus[selectedGuild]);
         } else if (currentView === 'village' && selectedVillage) {
-            const content = createVillageDetailTable(selectedVillage, villageStatus[selectedVillage]);
-            return `<div style="width:${isMobile ? '100vw' : '100%'}; height:${isMobile ? 'auto' : '100%'}; overflow-y:auto;">${content}</div>`;
-        } else {
-            return `
-            <div style="display: flex; align-items: center; justify-content: center;
-                        height: ${isMobile ? '50vh' : '100%'}; color: #888; font-size: 15px;">
-                왼쪽에서 길드나 마을을 선택하세요
-            </div>`;
+            return createVillageDetailTable(selectedVillage, villageStatus[selectedVillage]);
         }
+        return '';
     }
 
-
     function createGuildCards(guildStatus) {
-        let html = '';
+        let html = `
+        <div class="lanis-card total-card ${selectedGuild === null ? 'active' : ''}" data-action="reset">
+            <div class="card-title" style="font-size:13px;">📊 전체 요약 보기</div>
+        </div>
+    `;
 
-        for (const guildName of Object.keys(guildStatus)) {
+        const sortedGuilds = Object.keys(guildStatus).sort((a, b) => {
+            return Object.keys(guildStatus[b]).length - Object.keys(guildStatus[a]).length;
+        });
+
+        for (const guildName of sortedGuilds) {
             const isSelected = selectedGuild === guildName;
+            const memberCount = Object.keys(guildStatus[guildName]).length;
+
             html += `
-                <div class="guild-card" data-guild="${guildName}" style="
-                    background: ${isSelected ? '#444' : '#333'};
-                    padding: 5px;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    text-align: center;
-                    transition: all 0.3s;
-                    border: 3px solid ${isSelected ? '#66f' : '#ada8a878'};
-                ">
-                    <h4 style="margin: 0; color: #ffffff; font-size: 16px;">${guildName}</h4>
-                    <p style="margin: 5px 0 0 0; color: #aaa; font-size: 12px;">${Object.keys(guildStatus[guildName]).length}명</p>
+            <div class="lanis-card ${isSelected ? 'active' : ''}" data-guild="${guildName}">
+                <div class="card-title">${guildName}</div>
+                <div class="card-sub">
+                    <span>${memberCount}명</span>
+                    ${isSelected ? '<span style="color:#7986cb;">●</span>' : ''}
                 </div>
-            `;
+            </div>
+        `;
         }
-
-
         return html;
     }
 
     function createVillageCards(villageStatus) {
-        let html = '';
+        let html = `
+    `;
 
-        for (const [villageName, stats] of Object.entries(villageStatus)) {
+        const sortedVillages = Object.keys(villageStatus).sort((a, b) => {
+            return villageStatus[b].totalAttacks - villageStatus[a].totalAttacks;
+        });
+
+        for (const villageName of sortedVillages) {
+            const stats = villageStatus[villageName];
             const isSelected = selectedVillage === villageName;
             const owner = villageOwnership[villageName];
 
             html += `
-                <div class="village-card" data-village="${villageName}" style="
-                    background: ${isSelected ? '#444' : '#333'};
-                    padding: 5px;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    text-align: center;
-                    transition: all 0.3s;
-                    border: 2px solid ${isSelected ? '#f6f' : '#444'};
-                ">
-                    <h4 style="margin: 0; color: #ffffff; font-size: 16px;">${villageName}</h4>
-                    ${owner ? `
-                        <p style="margin: 5px 0 0 0; color: #4f4; font-size: 11px;">👑 ${owner.guildName}</p>
-                    ` : `
-                        <p style="margin: 5px 0 0 0; color: #888; font-size: 11px;">⚔️ 중립</p>
-                    `}
-                    <p style="margin: 5px 0 0 0; color: #4f4; font-size: 12px;">성공: ${stats.successAttacks}</p>
-                    <p style="margin: 5px 0 0 0; color: #f44; font-size: 12px;">실패: ${stats.failAttacks}</p>
+            <div class="lanis-card ${isSelected ? 'active' : ''}" data-village="${villageName}">
+                <div class="card-title">${villageName}</div>
+                <div class="card-sub" style="margin-bottom: 4px;">
+                    ${owner ? `<span style="color:#66bb6a;">👑 ${owner.guildName}</span>` : '<span style="color:#757575;">⚪ 중립</span>'}
                 </div>
-            `;
+                <div style="font-size: 10px; display:flex; gap:6px;">
+                    <span style="color:#66bb6a;">성공 ${stats.successAttacks}</span>
+                    <span style="color:#ef5350;">실패 ${stats.failAttacks}</span>
+                </div>
+            </div>
+        `;
         }
         return html;
     }
@@ -1893,159 +2259,98 @@
         const villageStats = {};
         const logs = guildLogs[guildName] || [];
 
+        // 마을 통계 계산
         logs.forEach(log => {
-            if (!villageStats[log.village]) {
-                villageStats[log.village] = {
-                    attacking: 0,
-                    defending: 0
-                };
-            }
+            if (!villageStats[log.village]) villageStats[log.village] = { attacking: 0, defending: 0 };
+            if (log.isDefender) villageStats[log.village].defending++;
+            else villageStats[log.village].attacking++;
+        });
 
-            if (log.isDefender) {
-                villageStats[log.village].defending++;
+        // 상단 배지 (활동 많은 마을 순)
+        const badges = Object.entries(villageStats)
+            .sort((a, b) => (b[1].attacking + b[1].defending) - (a[1].attacking + a[1].defending))
+            .map(([vName, stats]) => {
+                let className = '';
+                if (stats.attacking > 0 && stats.defending > 0) className = 'bg-clash';
+                else if (stats.attacking > 0) className = 'bg-attack';
+                else className = 'bg-defend';
+                return `<span class="badge ${className}">${vName} (공${stats.attacking}/방${stats.defending})</span>`;
+            }).join('');
+
+        // 🔹 정렬 로직 적용
+        const { key, order } = sortState.guild;
+        const sortedMembers = Object.entries(members).sort((a, b) => {
+            let valA, valB;
+
+            // 정렬 키에 따른 값 추출
+            if (key === 'nickname') {
+                valA = a[0]; valB = b[0];
             } else {
-                villageStats[log.village].attacking++;
+                valA = a[1][key]; valB = b[1][key];
             }
+
+            if (valA < valB) return order === 'asc' ? -1 : 1;
+            if (valA > valB) return order === 'asc' ? 1 : -1;
+            return 0;
         });
 
-        const villages = Object.entries(villageStats).sort((a, b) => {
-            const aTotal = (a[1].attacking > 0 ? 1 : 0) + (a[1].defending > 0 ? 1 : 0);
-            const bTotal = (b[1].attacking > 0 ? 1 : 0) + (b[1].defending > 0 ? 1 : 0);
-            if (aTotal !== bTotal) return bTotal - aTotal;
-            return b[1].attacking - a[1].attacking;
-        });
-
-        const getSortIndicator = (key) => {
-            if (guildTableSort.key !== key) return '';
-            return guildTableSort.dir === 'asc' ? ' ▲' : ' ▼';
+        // 정렬 아이콘 헬퍼
+        const getIcon = (colKey) => {
+            if (key !== colKey) return '<span style="color:#444">⇅</span>';
+            return order === 'asc' ? '▲' : '▼';
         };
 
-        // [수정됨] 클릭 가능한 헤더 스타일
-        const thSortableStyle = 'cursor: pointer; user-select: none; transition: background 0.2s;';
+        // 헤더 스타일 (클릭 가능 표시)
+        const thStyle = "cursor: pointer; user-select: none;";
 
         let html = `
-        <div style="padding: 15px;">
-            <h3 style="margin: 0 0 10px 0; color: #ffffff;">${guildName} 상세 정보</h3>
+        <div class="table-container">
+            <div class="detail-header">
+                <h3>${guildName}</h3>
+                <div class="detail-badges">${badges || '<span style="color:#666; font-size:12px;">전투 기록 없음</span>'}</div>
+            </div>
             
-            ${villages.length > 0 ? `
-                <div style="
-                    background: #1a3d4d;
-                    padding: 12px;
-                    border-radius: 8px;
-                    margin-bottom: 15px;
-                    border: 2px solid #2d5a7a;
-                ">
-                    <div style="color: #8cf; font-size: 14px; font-weight: bold; margin-bottom: 8px;">
-                        ⚔️ 전투 중인 마을 (${villages.length}개)
-                    </div>
-                    <div style="
-                        display: flex;
-                        flex-wrap: wrap;
-                        gap: 6px;
-                        max-height: 150px;
-                        overflow-y: auto;
-                    ">
-                        ${villages.map(([villageName, stats]) => {
-            const isAttacking = stats.attacking > 0;
-            const isDefending = stats.defending > 0;
-
-            let bgColor, borderColor, text;
-            if (isAttacking && isDefending) {
-                bgColor = '#4d3d1a';
-                borderColor = '#7a5a2d';
-                text = `⚔️🛡️ ${villageName} (공${stats.attacking} / 방${stats.defending})`;
-            } else if (isAttacking) {
-                bgColor = '#4d1a1a';
-                borderColor = '#7a2d2d';
-                text = `⚔️ ${villageName} (공격 ${stats.attacking}회)`;
-            } else {
-                bgColor = '#1a4d1a';
-                borderColor = '#2d7a2d';
-                text = `🛡️ ${villageName} (방어 ${stats.defending}회)`;
-            }
-
-            return `
-                                <span style="
-                                    background: ${bgColor};
-                                    color: #fff;
-                                    padding: 6px 12px;
-                                    border-radius: 4px;
-                                    font-size: 12px;
-                                    border: 1px solid ${borderColor};
-                                    white-space: nowrap;
-                                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                                ">
-                                    ${text}
-                                </span>
-                            `;
-        }).join('')}
-                    </div>
-                </div>
-            ` : `
-                <div style="
-                    background: #4d4d1a;
-                    color: #888;
-                    padding: 12px;
-                    border-radius: 8px;
-                    margin-bottom: 15px;
-                    border: 2px solid #7a7a2d;
-                    text-align: center;
-                    font-size: 14px;
-                ">
-                    전투 기록이 없습니다
-                </div>
-            `}
-            
-            <table style="width: 100%; border-collapse: collapse;">
+            <table class="lanis-table sortable-table">
                 <thead>
-                    <tr style="background: #1a1a1a;">
-                        <th class="sortable-header" data-sort-key="memberName" style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}">길드원${getSortIndicator('memberName')}</th>
-                        <th class="sortable-header" data-sort-key="attackRemaining" style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}">남은<br>공격권${getSortIndicator('attackRemaining')}</th>
-                        <th class="sortable-header" data-sort-key="defenseRemaining" style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}">남은<br>수비권${getSortIndicator('defenseRemaining')}</th>
-                        <th class="sortable-header" data-sort-key="attackSuccess" style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}">공격<br>성공${getSortIndicator('attackSuccess')}</th>
-                        <th class="sortable-header" data-sort-key="attackFail" style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px; ${thSortableStyle}">공격<br>실패${getSortIndicator('attackFail')}</th>
-                        <th class="sortable-header" data-sort-key="defenseSuccess" style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}">수비<br>성공${getSortIndicator('defenseSuccess')}</th>
-                        <th class="sortable-header" data-sort-key="defenseFail" style="border: 1px solid #444; padding: 10px; color: #ffffff; ${thSortableStyle}">수비<br>실패${getSortIndicator('defenseFail')}</th>
+                    <tr>
+                        <th class="txt-left border-r" style="width: 120px; ${thStyle}" data-sort-key="nickname">
+                            길드원 ${getIcon('nickname')}
+                        </th>
+                        <th class="txt-center" style="width: 60px; ${thStyle}" data-sort-key="attackRemaining">
+                            공격권 ${getIcon('attackRemaining')}
+                        </th>
+                        <th class="txt-center border-r" style="width: 60px; ${thStyle}" data-sort-key="defenseRemaining">
+                            수비권 ${getIcon('defenseRemaining')}
+                        </th>
+                        <th class="txt-right" style="${thStyle}" data-sort-key="attackSuccess">
+                            공격성공 ${getIcon('attackSuccess')}
+                        </th>
+                        <th class="txt-right border-r" style="${thStyle}" data-sort-key="attackFail">
+                            공격실패 ${getIcon('attackFail')}
+                        </th>
+                        <th class="txt-right" style="${thStyle}" data-sort-key="defenseSuccess">
+                            수비성공 ${getIcon('defenseSuccess')}
+                        </th>
+                        <th class="txt-right" style="${thStyle}" data-sort-key="defenseFail">
+                            수비실패 ${getIcon('defenseFail')}
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
         `;
 
-        // [수정됨] 정렬 로직
-        // 1. members 객체를 배열로 변환
-        const memberList = Object.entries(members).map(([name, stats]) => ({
-            memberName: name,
-            ...stats
-        }));
-
-        // 2. 배열을 guildTableSort 기준으로 정렬
-        const { key, dir } = guildTableSort;
-        memberList.sort((a, b) => {
-            let valA = a[key];
-            let valB = b[key];
-
-            // 길드원 이름은 문자열, 나머지는 숫자로 비교
-            if (key === 'memberName') {
-                return dir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-            } else {
-                // 숫자 비교
-                return dir === 'asc' ? valA - valB : valB - valA;
-            }
-        });
-
-        // 3. 정렬된 배열(memberList)을 기반으로 HTML 생성
-        for (const member of memberList) {
-            const { memberName, ...stats } = member; // 다시 memberName과 stats로 분리
+        for (const [memberName, stats] of sortedMembers) {
+            const fmt = (val, colorClass) => val > 0 ? `<span class="${colorClass}">${val}</span>` : `<span class="c-dim">-</span>`;
 
             html += `
-            <tr style="background: #2a2a2a;">
-                <td style="border: 1px solid #444; padding: 10px; color: #ffffff; border-right-width: 5px;">${memberName}</td>
-                <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #4af;">${stats.attackRemaining}</td>
-                <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #fa4; border-right-width: 5px;">${stats.defenseRemaining}</td>
-                <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #4f4;">${stats.attackSuccess}</td>
-                <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #f44; border-right-width: 5px;">${stats.attackFail}</td>
-                <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #4f4;">${stats.defenseSuccess}</td>
-                <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #f44;">${stats.defenseFail}</td>
+            <tr>
+                <td class="txt-left border-r" style="font-weight:bold; color:#eee;">${memberName}</td>
+                <td class="txt-center" style="color:#90caf9;">${stats.attackRemaining}</td>
+                <td class="txt-center border-r" style="color:#ffcc80;">${stats.defenseRemaining}</td>
+                <td class="txt-center">${fmt(stats.attackSuccess, 'c-success')}</td>
+                <td class="txt-center border-r">${fmt(stats.attackFail, 'c-fail')}</td>
+                <td class="txt-center">${fmt(stats.defenseSuccess, 'c-success')}</td>
+                <td class="txt-center">${fmt(stats.defenseFail, 'c-fail')}</td>
             </tr>
             `;
         }
@@ -2056,63 +2361,106 @@
 
     function createVillageDetailTable(villageName, stats) {
         const owner = villageOwnership[villageName];
+        let statusHtml = '';
+
+        if (owner) {
+            statusHtml = `
+                <div style="background: rgba(76, 175, 80, 0.15); border: 1px solid #2e7d32; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="color: #66bb6a; font-size: 16px; font-weight: bold; margin-bottom: 5px;">
+                        👑 현재 점령: ${owner.guildName}
+                    </div>
+                    <div style="font-size: 12px; color: #aaa;">
+                        <span style="color:#81c784;">${owner.time} 점령</span>
+                        ${owner.previousOwner !== owner.guildName ? ` <span style="color:#666;">|</span> <span style="color:#ffb74d;">탈환: ${owner.previousOwner} → ${owner.guildName}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        } else {
+            statusHtml = `
+                <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid #444; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="color: #bdbdbd; font-size: 16px; font-weight: bold;">⚔️ 중립 지역</div>
+                </div>
+            `;
+        }
+
+        // 🔹 정렬 로직 적용
+        const { key, order } = sortState.village;
+        const sortedGuilds = Object.entries(stats.guilds).sort((a, b) => {
+            let valA, valB;
+            const statsA = a[1];
+            const statsB = b[1];
+
+            if (key === 'guildName') {
+                valA = a[0]; valB = b[0];
+            } else if (key === 'rate') {
+                // 성공률 계산
+                valA = statsA.attacks > 0 ? (statsA.success / statsA.attacks) : 0;
+                valB = statsB.attacks > 0 ? (statsB.success / statsB.attacks) : 0;
+            } else {
+                valA = statsA[key]; valB = statsB[key];
+            }
+
+            if (valA < valB) return order === 'asc' ? -1 : 1;
+            if (valA > valB) return order === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        const getIcon = (colKey) => {
+            if (key !== colKey) return '<span style="color:#444">⇅</span>';
+            return order === 'asc' ? '▲' : '▼';
+        };
+        const thStyle = "cursor: pointer; user-select: none;";
 
         let html = `
-            <div style="padding: 15px;">
-                <h3 style="margin: 0 0 15px 0; color: #ffffff;">${villageName} 마을 통계</h3>
-                ${owner ? `
-                    <div style="background: #1a4d1a; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 2px solid #2d7a2d;">
-                        <p style="margin: 0; color: #4f4; font-size: 16px; font-weight: bold;">
-                            🏆 현재 점령: ${owner.guildName}
-                        </p>
-                        <p style="margin: 5px 0 0 0; color: #8f8; font-size: 12px;">
-                            점령 시각: ${owner.time}
-                        </p>
-                        ${owner.previousOwner !== owner.guildName ? `
-                            <p style="margin: 5px 0 0 0; color: #fa4; font-size: 12px;">
-                                ⚔️ 탈환: ${owner.previousOwner} → ${owner.guildName}
-                            </p>
-                        ` : `
-                            <p style="margin: 5px 0 0 0; color: #8f8; font-size: 12px;">
-                                🛡️ 방어 성공 (${owner.guildName} 유지)
-                            </p>
-                        `}
-                    </div>
-                ` : `
-                    <div style="background: #4d4d1a; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 2px solid #7a7a2d;">
-                        <p style="margin: 0; color: #ff4; font-size: 16px; font-weight: bold;">
-                            ⚔️ 중립 상태 (점령 기록 없음)
-                        </p>
-                    </div>
-                `}
-                <div style="background: #1a1a1a; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                    <p style="margin: 5px 0; color: #ffffff;">총 공격 횟수: ${stats.totalAttacks}</p>
-                    <p style="margin: 5px 0; color: #4f4;">성공한 공격: ${stats.successAttacks}</p>
-                    <p style="margin: 5px 0; color: #f44;">실패한 공격: ${stats.failAttacks}</p>
+            <div class="table-container">
+                <div class="detail-header">
+                    <h3>${villageName}</h3>
                 </div>
-                <h4 style="margin: 15px 0 10px 0; color: #ffffff;">길드별 공격 현황</h4>
-                <table style="width: 100%; border-collapse: collapse;">
+                ${statusHtml}
+                
+                <div style="display:flex; justify-content:space-around; background:#1e1e1e; padding:10px; border-radius:6px; margin-bottom:15px; border:1px solid #333;">
+                    <div class="txt-center"><span class="c-dim">총 공격</span><br><strong style="color:#fff; font-size:16px;">${stats.totalAttacks}</strong></div>
+                    <div class="txt-center"><span class="c-success">성공</span><br><strong style="color:#66bb6a; font-size:16px;">${stats.successAttacks}</strong></div>
+                    <div class="txt-center"><span class="c-fail">실패</span><br><strong style="color:#ef5350; font-size:16px;">${stats.failAttacks}</strong></div>
+                </div>
+
+                <h4 style="color:#ddd; margin: 0 0 10px 0;">길드별 공격 현황</h4>
+                <table class="lanis-table sortable-table">
                     <thead>
-                        <tr style="background: #1a1a1a;">
-                            <th style="border: 1px solid #444; padding: 10px; color: #ffffff;">길드명</th>
-                            <th style="border: 1px solid #444; padding: 10px; color: #ffffff;">총 공격</th>
-                            <th style="border: 1px solid #444; padding: 10px; color: #ffffff;">성공</th>
-                            <th style="border: 1px solid #444; padding: 10px; color: #ffffff;">실패</th>
+                        <tr>
+                            <th class="txt-left" style="${thStyle}" data-sort-key="guildName">
+                                길드명 ${getIcon('guildName')}
+                            </th>
+                            <th class="txt-center" style="${thStyle}" data-sort-key="attacks">
+                                총 공격 ${getIcon('attacks')}
+                            </th>
+                            <th class="txt-center" style="${thStyle}" data-sort-key="success">
+                                성공 ${getIcon('success')}
+                            </th>
+                            <th class="txt-center" style="${thStyle}" data-sort-key="fail">
+                                실패 ${getIcon('fail')}
+                            </th>
+                            <th class="txt-center" style="${thStyle}" data-sort-key="rate">
+                                성공률 ${getIcon('rate')}
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
         `;
 
-        for (const [guildName, guildStats] of Object.entries(stats.guilds)) {
+        for (const [guildName, guildStats] of sortedGuilds) {
             const isOwner = owner && owner.guildName === guildName;
+            const rate = guildStats.attacks > 0 ? Math.round((guildStats.success / guildStats.attacks) * 100) : 0;
+
             html += `
-                <tr style="background: ${isOwner ? '#1a3d1a' : '#2a2a2a'};">
-                    <td style="border: 1px solid #444; padding: 10px; color: #ffffff;">
-                        ${guildName}${isOwner ? ' 👑' : ''}
+                <tr style="${isOwner ? 'background: rgba(76, 175, 80, 0.1);' : ''}">
+                    <td class="txt-left" style="color: ${isOwner ? '#66bb6a' : '#eee'}; font-weight: ${isOwner ? 'bold' : 'normal'};">
+                        ${guildName} ${isOwner ? '👑' : ''}
                     </td>
-                    <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #aaa;">${guildStats.attacks}</td>
-                    <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #4f4;">${guildStats.success}</td>
-                    <td style="border: 1px solid #444; padding: 10px; text-align: center; color: #f44;">${guildStats.fail}</td>
+                    <td class="txt-center" style="color:#ddd;">${guildStats.attacks}</td>
+                    <td class="txt-center c-success">${guildStats.success}</td>
+                    <td class="txt-center c-fail">${guildStats.fail}</td>
+                    <td class="txt-center" style="color:#aaa; font-size:11px;">${rate}%</td>
                 </tr>
             `;
         }
@@ -2120,29 +2468,88 @@
         html += '</tbody></table></div>';
         return html;
     }
+    function attachTableSortListeners(guildStatus, villageStatus) {
+        const headers = document.querySelectorAll('.sortable-table th[data-sort-key]');
 
+        headers.forEach(th => {
+            th.addEventListener('click', () => {
+                const sortKey = th.getAttribute('data-sort-key');
+                const targetState = currentView === 'guild' ? sortState.guild : sortState.village;
+
+                // 이미 같은 키로 정렬 중이면 순서 반전, 아니면 내림차순(desc)으로 시작
+                if (targetState.key === sortKey) {
+                    targetState.order = targetState.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    targetState.key = sortKey;
+                    targetState.order = 'desc'; // 기본적으로 숫자가 큰게 위로 오도록
+
+                    // 이름 정렬일 경우 오름차순이 자연스러움
+                    if (sortKey === 'nickname' || sortKey === 'guildName') {
+                        targetState.order = 'asc';
+                    }
+                }
+
+                // 화면 갱신
+                const detailView = document.getElementById('detail-view');
+                if (detailView) {
+                    detailView.innerHTML = generateDetailView(guildStatus, villageStatus);
+                    // 갱신 후 리스너 다시 부착 (HTML이 교체되었으므로)
+                    attachTableSortListeners(guildStatus, villageStatus);
+                }
+            });
+        });
+    }
     function attachCardListeners(guildStatus, villageStatus) {
+        // "전체 요약 보기" 버튼 처리
+        const resetCard = document.querySelector('.lanis-card[data-action="reset"]');
+        if (resetCard) {
+            resetCard.addEventListener('click', () => {
+                document.querySelectorAll('.lanis-card').forEach(c => c.classList.remove('active'));
+                resetCard.classList.add('active');
+
+                selectedGuild = null;
+                selectedVillage = null;
+
+                const detailView = document.getElementById('detail-view');
+                if (detailView) {
+                    detailView.innerHTML = generateDetailView(guildStatus, villageStatus);
+                }
+                updateLogDisplay();
+            });
+        }
+
+        // 길드 카드 클릭
         if (currentView === 'guild') {
-            document.querySelectorAll('.guild-card').forEach(card => {
+            document.querySelectorAll('.lanis-card[data-guild]').forEach(card => {
                 card.addEventListener('click', () => {
+                    document.querySelectorAll('.lanis-card').forEach(c => c.classList.remove('active'));
+                    card.classList.add('active');
+
                     selectedGuild = card.dataset.guild;
+
                     const detailView = document.getElementById('detail-view');
                     if (detailView) {
                         detailView.innerHTML = generateDetailView(guildStatus, villageStatus);
+                        attachTableSortListeners(guildStatus, villageStatus);
                     }
-                    updateCardSelection(guildStatus, villageStatus);
                     updateLogDisplay();
                 });
             });
-        } else {
-            document.querySelectorAll('.village-card').forEach(card => {
+        }
+        // 마을 카드 클릭
+        else {
+            document.querySelectorAll('.lanis-card[data-village]').forEach(card => {
                 card.addEventListener('click', () => {
+                    document.querySelectorAll('.lanis-card').forEach(c => c.classList.remove('active'));
+                    card.classList.add('active');
+
                     selectedVillage = card.dataset.village;
+
                     const detailView = document.getElementById('detail-view');
                     if (detailView) {
                         detailView.innerHTML = generateDetailView(guildStatus, villageStatus);
+                        attachTableSortListeners(guildStatus, villageServices);
                     }
-                    updateCardSelection(guildStatus, villageStatus);
                     updateLogDisplay();
                 });
             });
@@ -2155,30 +2562,37 @@
             const savedScroll = cardContainer.scrollTop;
 
             const cardsHtml = currentView === 'guild'
-                ? createGuildCards(guildStatus)
-                : createVillageCards(villageStatus);
+                ? `<div class="card-grid">${createGuildCards(guildStatus)}</div>`
+                : `<div class="card-grid">${createVillageCards(villageStatus)}</div>`;
 
-            cardContainer.innerHTML = cardsHtml.replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '');
-
+            cardContainer.innerHTML = cardsHtml;
             attachCardListeners(guildStatus, villageStatus);
             cardContainer.scrollTop = savedScroll;
         }
+
+        const detailView = document.getElementById('detail-view');
+        if (detailView) {
+            detailView.innerHTML = generateDetailView(guildStatus, villageStatus);
+            attachTableSortListeners(guildStatus, villageStatus);
+        }
+
+        updateLogDisplay();
     }
 
     function updateStatusPopup(guildStatus, villageStatus) {
         updateLogInfoOnly();
-        lastGuildStatus = guildStatus;
-        lastVillageStatus = villageStatus;
+
         const cardContainer = document.getElementById('card-container');
         const detailView = document.getElementById('detail-view');
 
         if (cardContainer) {
             const savedScroll = cardContainer.scrollTop;
-            const cardsHtml = currentView === 'guild'
-                ? createGuildCards(guildStatus)
-                : createVillageCards(villageStatus);
 
-            cardContainer.innerHTML = cardsHtml.replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '');
+            const cardsHtml = currentView === 'guild'
+                ? `<div class="card-grid">${createGuildCards(guildStatus)}</div>`
+                : `<div class="card-grid">${createVillageCards(villageStatus)}</div>`;
+
+            cardContainer.innerHTML = cardsHtml;
             attachCardListeners(guildStatus, villageStatus);
             cardContainer.scrollTop = savedScroll;
         }
@@ -2186,8 +2600,8 @@
         if (detailView) {
             const savedScroll = detailView.scrollTop;
             detailView.innerHTML = generateDetailView(guildStatus, villageStatus);
+            attachTableSortListeners(guildStatus, villageStatus);
             detailView.scrollTop = savedScroll;
-            attachGuildSortListeners();
         }
 
         updateLogDisplay();
@@ -2236,46 +2650,113 @@
             document.onmousemove = null;
         }
     }
-    function setGuildSort(key) {
-        if (guildTableSort.key === key) {
-            // 같은 키를 누르면 정렬 방향 변경
-            guildTableSort.dir = guildTableSort.dir === 'asc' ? 'desc' : 'asc';
-        } else {
-            // 다른 키를 누르면 해당 키로 오름차순 정렬
-            guildTableSort.key = key;
-            guildTableSort.dir = 'asc';
+// =====================================================
+    // 드래그(이동) 및 리사이즈(크기조절) 로직
+    // =====================================================
+
+    /**
+     * 요소 이동 (헤더 드래그 시에만 작동)
+     */
+    function makeDraggable(element) {
+        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+        const header = element.querySelector('#war-status-header');
+
+        if (header) {
+            header.onmousedown = dragMouseDown;
         }
 
-        // 저장된 최신 데이터로 팝업을 다시 렌더링합니다.
-        updateStatusPopup(lastGuildStatus, lastVillageStatus);
+        function dragMouseDown(e) {
+            // 버튼이나 입력창 등을 클릭했을 때는 드래그 방지
+            if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+
+            e.preventDefault();
+            // 시작 마우스 위치
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+
+            document.onmouseup = closeDragElement;
+            document.onmousemove = elementDrag;
+        }
+
+        function elementDrag(e) {
+            e.preventDefault();
+            // 이동 거리 계산
+            pos1 = pos3 - e.clientX;
+            pos2 = pos4 - e.clientY;
+            pos3 = e.clientX;
+            pos4 = e.clientY;
+
+            // 새 위치 적용
+            const newTop = (element.offsetTop - pos2);
+            const newLeft = (element.offsetLeft - pos1);
+
+            element.style.top = newTop + "px";
+            element.style.left = newLeft + "px";
+
+            // transform 초기화 (위치 계산 꼬임 방지)
+            element.style.transform = "none";
+            element.style.right = "auto";
+
+            // 위치 기억 (전역 변수 업데이트)
+            popupPosition.top = newTop + "px";
+            popupPosition.left = newLeft + "px";
+            popupPosition.right = null;
+            popupPosition.transform = "none";
+        }
+
+        function closeDragElement() {
+            document.onmouseup = null;
+            document.onmousemove = null;
+        }
     }
-    function attachGuildSortListeners() {
-        const popup = document.getElementById('war-status-popup');
-        if (!popup) return;
-        // .sortable-header 클래스를 가진 모든 th 태그를 찾습니다.
-        const headers = popup.querySelectorAll('.sortable-header');
 
-        headers.forEach(th => {
+    /**
+     * 요소 크기 조절 (우측 하단 핸들)
+     */
+    function makeResizable(element) {
+        const resizer = element.querySelector('#resize-handle');
+        if (!resizer) return;
 
-            th.addEventListener('mouseenter', () => {
-                if (th.style) th.style.background = '#3a3a3a';
-            });
-            th.addEventListener('mouseleave', () => {
-                if (th.style) th.style.background = '#1a1a1a';
-            });
+        resizer.addEventListener('mousedown', function(e) {
+            e.preventDefault();
 
-            // 클릭 리스너
-            th.addEventListener('click', () => {
-                const sortKey = th.getAttribute('data-sort-key');
-                if (sortKey) {
-                    setGuildSort(sortKey); // 1단계의 setGuildSort 함수 호출
+            // 초기 크기 및 마우스 위치 저장
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startWidth = parseInt(document.defaultView.getComputedStyle(element).width, 10);
+            const startHeight = parseInt(document.defaultView.getComputedStyle(element).height, 10);
+
+            function doDrag(e) {
+                // 새 크기 계산
+                const newWidth = startWidth + e.clientX - startX;
+                const newHeight = startHeight + e.clientY - startY;
+
+                // 최소 크기 제한 (너무 작아지지 않도록)
+                if (newWidth > 300) {
+                    element.style.width = newWidth + 'px';
+                    popupPosition.width = newWidth + 'px'; // 상태 저장
                 }
-            });
+                if (newHeight > 200) {
+                    element.style.height = newHeight + 'px';
+                    popupPosition.height = newHeight + 'px'; // 상태 저장
+                }
+            }
+
+            function stopDrag() {
+                window.removeEventListener('mousemove', doDrag);
+                window.removeEventListener('mouseup', stopDrag);
+            }
+
+            window.addEventListener('mousemove', doDrag);
+            window.addEventListener('mouseup', stopDrag);
         });
     }
     function createStatusPopup(guildStatus, villageStatus) {
+        injectCustomStyles();
+
         const existingPopup = document.getElementById('war-status-popup');
 
+        // 기존 팝업이 있으면 위치/크기 정보를 기억하고 삭제
         if (existingPopup) {
             const rect = existingPopup.getBoundingClientRect();
             popupPosition = {
@@ -2284,7 +2765,7 @@
                 right: null,
                 transform: "none",
                 width: rect.width + "px",
-                height: isMinimized ? popupPosition.height : (rect.height + "vw")
+                height: isMinimized ? 'auto' : (rect.height + "px") // 높이 기억
             };
             existingPopup.remove();
         }
@@ -2292,367 +2773,200 @@
         const popup = document.createElement('div');
         popup.id = 'war-status-popup';
 
+        // 위치 및 크기 스타일 설정
         const posStyle = popupPosition.right
             ? `top: ${popupPosition.top}; right: ${popupPosition.right}; transform: ${popupPosition.transform};`
             : `top: ${popupPosition.top}; left: ${popupPosition.left}; transform: ${popupPosition.transform};`;
 
-        const width = popupPosition.isMobile
-            ? (popupPosition.width || '95vw')
-            : (popupPosition.width || '900px');
-
+        const width = popupPosition.isMobile ? '95vw' : (popupPosition.width || '1050px');
         const height = popupPosition.isMobile
-            ? (isMinimized ? 'auto' : (popupPosition.height || '75vh'))
-            : (isMinimized ? 'auto' : (popupPosition.height || '55vh'));
+            ? (isMinimized ? 'auto' : '85vh')
+            : (isMinimized ? 'auto' : (popupPosition.height || '750px'));
 
-        const minWidth = popupPosition.isMobile ? '95vw' : '600px';
-        const sidebarWidth = popupPosition.isMobile ? '100%' : '150px';
-        const sidebarDisplay = 'flex';
-        const sidebarFlexShrink = popupPosition.isMobile ? '0' : '0';
-        popup.style.cssText = `
-        position: fixed;
-        ${posStyle}
-        background: #2a2a2a;
-        border: 2px solid #444;
-        border-radius: 8px;
-        padding: 0;
-        z-index: 10000;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-        width: ${width};
-        height: ${height};
-        min-width: ${minWidth};
-        ${isMinimized ? '' : 'min-height: 400px;'}
-        color: #ffffff;
-        display: flex;
-        flex-direction: column;
-        ${isMinimized || popupPosition.isMobile ? '' : 'resize: both;'}
-        overflow: hidden;
-    `;
+        popup.style.cssText = `position: fixed; ${posStyle} width: ${width}; height: ${height}; z-index: 10000;`;
 
+        // 날짜 및 로그 정보
         const now = new Date();
-        const koreaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-        const days = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
-        const currentDay = days[koreaTime.getDay()];
-        const dateStr = `${koreaTime.getFullYear()}년 ${koreaTime.getMonth() + 1}월 ${koreaTime.getDate()}일`;
+        const dateStr = `${now.getMonth() + 1}/${now.getDate()}`;
+        const logCount = window.warLogInfo ? window.warLogInfo.totalCount : 0;
+        const logStatusText = window.warLogInfo
+            ? `<span style="color:#aaa;">로그 ${logCount}개</span>`
+            : `<span style="color:#666;">대기 중...</span>`;
 
+        // HTML 구성
         let html = `
-         <div id="war-status-header" style="
-            background: #1a1a1a;
-            padding: ${popupPosition.isMobile ? '8px' : '10px'};
-            cursor: move;
-            border-bottom: 2px solid #444;
-            display: flex;
-            flex-direction: ${popupPosition.isMobile ? 'column' : 'row'};
-            justify-content: space-between;
-            align-items: ${popupPosition.isMobile ? 'stretch' : 'center'};
-            flex-shrink: 0;
-            gap: ${popupPosition.isMobile ? '10px' : '0'};
-        ">
-              <div>
-                <h2 style="margin: 0; color: #ffffff; font-size: ${popupPosition.isMobile ? '16px' : '18px'};">오늘의 전쟁 현황${isCollecting ? ' (자동 수집 중...)' : ''}</h2>
-                <p style="margin: 5px 0 0 0; color: #aaa; font-size: ${popupPosition.isMobile ? '12px' : '14px'};">${dateStr} (${currentDay})</p>
-                ${!popupPosition.isMobile ? `
-                <p id="war-log-info" style="margin: 5px 0 0 0; color: #888; font-size: 12px;">
-                    ${window.warLogInfo ? `
-                        최신: ${window.warLogInfo.firstLog.date.match(/\d{2}:\d{2}:\d{2}/)?.[0] || ''} | 
-                        ${window.warLogInfo.firstLog.guildName} ${window.warLogInfo.firstLog.memberName} → ${window.warLogInfo.firstLog.target} 
-                        ${window.warLogInfo.firstLog.isSuccess ? '<span style="color: #4f4;">승리</span>' : '<span style="color: #f44;">패배</span>'} 
-                        | 총 ${window.warLogInfo.totalCount}개
-                    ` : '로그 수집 대기중...'}
-                </p>
-                ` : ''}
+        <div id="war-status-header" class="lanis-header" style="cursor: move;"> <div class="lanis-title">
+                <h2>
+                    오늘의 전쟁 현황 
+                    ${isCollecting ? '<span style="color:#66bb6a; font-size:11px; background:rgba(102,187,106,0.1); padding:2px 6px; border-radius:4px;">● 수집중</span>' : ''}
+                </h2>
+                <p>${dateStr} | ${logStatusText}</p>
             </div>
-      <div style="display: ${popupPosition.isMobile ? 'grid' : 'flex'}; 
-                        grid-template-columns: ${popupPosition.isMobile ? '1fr 1fr' : 'none'}; 
-                        gap: ${popupPosition.isMobile ? '5px' : '10px'};">
-                <button id="help-btn" style="
-                    padding: ${popupPosition.isMobile ? '6px 8px' : '5px 10px'};
-                    background: #9c27b0;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-weight: bold;
-                    font-size: ${popupPosition.isMobile ? '12px' : '14px'};
-                ">❓ 도움말</button>
-                <button id="auto-collect-missing-btn" style="
-                    padding: ${popupPosition.isMobile ? '8px 10px' : '5px 15px'};
-                    background: #ff9800;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-weight: bold;
-                     font-size: ${popupPosition.isMobile ? '12px' : '14px'};
-                ">🔄 길드 수집</button>
-                <button id="manual-collect-btn" style="
-                    padding: ${popupPosition.isMobile ? '8px 10px' : '5px 15px'};
-                    background: #2196F3;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-weight: bold;
-                     font-size: ${popupPosition.isMobile ? '12px' : '14px'};
-                ">로그 수동</button>
-                <button id="auto-collect-btn" style="
-                    padding: ${popupPosition.isMobile ? '8px 10px' : '5px 15px'};
-                    background: ${isCollecting ? '#ff9800' : '#4caf50'};
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-weight: bold;
-                    font-size: ${popupPosition.isMobile ? '12px' : '14px'};
-                ">${isCollecting ? '자동 중지' : '로그 자동'}</button>
-                <button id="minimize-btn" style="
-                    padding: ${popupPosition.isMobile ? '8px 10px' : '5px 15px'};
-                    background: #ec2d2d;
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-weight: bold;
-                     font-size: ${popupPosition.isMobile ? '12px' : '14px'};
-                    ${popupPosition.isMobile ? 'grid-column: 1 / -1;' : ''}
-                ">최소화</button>
+            
+            <div class="lanis-btn-group">
+                <button id="help-btn" class="lanis-btn btn-purple" title="도움말">❓</button>
+                <button id="reset-data-btn" class="lanis-btn btn-red" title="초기화">🗑️</button>
+                <div style="width:1px; height:16px; background:#444; margin:0 4px;"></div>
+                <button id="auto-collect-missing-btn" class="lanis-btn btn-orange">🔄 길드수집</button>
+                <button id="manual-collect-btn" class="lanis-btn btn-blue">로그 수동</button>
+                <button id="auto-collect-btn" class="lanis-btn btn-green">${isCollecting ? '⏹ 중지' : '▶ 자동'}</button>
+                <button id="minimize-btn" class="lanis-btn btn-gray" title="최소화">_</button>
             </div>
         </div>
-    `;
+        `;
+
         if (!isMinimized) {
             html += `
-          <div style="display: flex; flex: 1; overflow: hidden; flex-direction: ${popupPosition.isMobile ? 'column' : 'row'};">
-                <div style="width: ${sidebarWidth}; 
-                            display: ${sidebarDisplay}; 
-                            background: #1a1a1a; 
-                            border-right: 2px solid #444; 
-                            flex-direction: column;">
-                    <div style="padding: 10px; border-bottom: 1px solid #444; flex-shrink: 0;">
-                        <button id="guild-view-btn" style="
-                            width: 100%;
-                            padding: 10px;
-                            margin-bottom: 5px;
-                            background: ${currentView === 'guild' ? '#555' : '#333'};
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-weight: bold;
-                        ">길드별 보기</button>
-                        <button id="village-view-btn" style="
-                            width: 100%;
-                            padding: 10px;
-                            background: ${currentView === 'village' ? '#555' : '#333'};
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-weight: bold;
-                        ">마을별 보기</button>
+            <div class="lanis-body">
+                <div class="lanis-sidebar">
+                    <div class="sidebar-tabs">
+                        <button id="guild-view-btn" class="tab-btn ${currentView === 'guild' ? 'active' : ''}">길드별</button>
+                        <button id="village-view-btn" class="tab-btn ${currentView === 'village' ? 'active' : ''}">마을별</button>
                     </div>
-                    <div id="card-container" style="overflow-y: auto; flex: 1;">
-                        ${currentView === 'guild' ? createGuildCards(guildStatus) : createVillageCards(villageStatus)}
-                    </div>
+             <div id="card-container" class="card-container">
+    <div class="card-grid">
+        ${currentView === 'guild' ? createGuildCards(guildStatus) : createVillageCards(villageStatus)}
+    </div>
+</div>
                 </div>
-                   <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-                    <div id="detail-view" style="flex: 1; overflow-y: auto; background: #2a2a2a;">
+
+                <div class="lanis-content">
+                    <div id="detail-view" class="detail-view">
                         ${generateDetailView(guildStatus, villageStatus)}
                     </div>
-                    <div style="height: ${popupPosition.isMobile ? '230px' : '280px'}; 
-                                background: #1a1a1a; 
-                                border-top: 2px solid #444; 
-                                display: flex; 
-                                flex-direction: column; 
-                                flex-shrink: 0;">
-                        <h4 style="margin: 10px 15px; color: #ffffff; font-size: 14px;">로그</h4>
-                        <div id="war-log-container" style="
-                            flex: 1;
-                            background: #000;
-                            margin: 0 15px 15px 15px;
-                            padding: 10px;
-                            border-radius: 4px;
-                            overflow-y: auto;
-                            font-family: monospace;
-                            font-size: ${popupPosition.isMobile ? '12px' : '14px'};
-                        "></div>
+                    
+                    <div class="log-panel">
+                        <div class="log-header">
+                            <span>실시간 로그</span>
+                            <span style="font-weight:normal; font-size:10px; opacity:0.7;">최근 100개</span>
+                        </div>
+                        <div id="war-log-container" class="log-body"></div>
                     </div>
                 </div>
             </div>
-        `;
+            <div id="resize-handle" style="
+                position: absolute; bottom: 0; right: 0; width: 20px; height: 20px;
+                cursor: nwse-resize; z-index: 100001;
+                background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 50%);
+                border-bottom-right-radius: 12px;
+            "></div>
+            `;
         }
-
 
         popup.innerHTML = html;
-
-        if (!isMinimized) {
-            const resizeHandle = document.createElement('div');
-            resizeHandle.id = 'resize-handle';
-            resizeHandle.style.cssText = `
-            position: absolute;
-            bottom: 2px;
-            right: 2px;
-            width: 50px;
-            height: 50px;
-            cursor: nwse-resize;
-            z-index: 100000;
-            display: flex;
-            align-items: flex-end;
-            justify-content: flex-end;
-            padding: 8px;
-            background: linear-gradient(135deg, transparent 0%, transparent 40%, rgba(102, 126, 234, 0.95) 40%);
-            border-bottom-right-radius: 6px;
-            transition: all 0.3s;
-            pointer-events: auto;
-            box-shadow: -2px -2px 8px rgba(0, 0, 0, 0.3);
-        `;
-
-            resizeHandle.innerHTML = `
-            <div style="
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-                align-items: flex-end;
-            ">
-         ↘
-            </div>
-        `;
-
-            popup.appendChild(resizeHandle);
-
-            resizeHandle.addEventListener('mouseenter', () => {
-                resizeHandle.style.background = 'linear-gradient(135deg, transparent 0%, transparent 40%, rgba(118, 75, 162, 1) 40%)';
-                resizeHandle.style.transform = 'scale(1.1)';
-                resizeHandle.style.boxShadow = '-3px -3px 12px rgba(0, 0, 0, 0.5)';
-            });
-
-            resizeHandle.addEventListener('mouseleave', () => {
-                resizeHandle.style.background = 'linear-gradient(135deg, transparent 0%, transparent 40%, rgba(102, 126, 234, 0.95) 40%)';
-                resizeHandle.style.transform = 'scale(1)';
-                resizeHandle.style.boxShadow = '-2px -2px 8px rgba(0, 0, 0, 0.3)';
-            });
-        }
-
         document.body.appendChild(popup);
 
-        makeDraggable(popup);
-
-        // 팝업 생성 직후 버튼 상태 업데이트
-        setTimeout(() => {
-            updateGuildCollectButton(totalNeed)
-        }, 100);
-
-
-// 도움말 버튼
-        const helpBtn = document.getElementById('help-btn');
-        if (helpBtn) {
-            helpBtn.addEventListener('click', () => {
-                addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
-                addLog('📖 전쟁 트래커 사용 방법', 'success');
-                addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
-                addLog('1️⃣ 길드 정보가 저장되어 있지 않으면, "길드 자동 수집" 버튼을 누르고 끝날 때까지 대기해주세요. ', 'info');
-                addLog('', 'info');
-                addLog('2️⃣ 전쟁 로그 화면에서 "더보기" 버튼을 눌러 당일 전쟁 로그가 보일 때까지 클릭해주세요.', 'info');
-                addLog('', 'info');
-                addLog('3️⃣ 팝업 화면 우측 상단의  "로그 수동 수집" 버튼을 눌러주세요. ', 'info');
-                addLog('', 'info');
-                addLog('4️⃣ "로그 자동 수집" 버튼을 누르면, 20초마다 한 번씩 로그를 조사합니다.', 'info');
-                addLog('', 'info');
-                addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
-                addLog('💡 팁: 로그 창을 확인하여 진행 상황을 파악하세요!', 'success');
-                addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
-            });
+        // [중요] 드래그 및 리사이즈 기능 활성화
+        makeDraggable(popup);   // 헤더로 이동
+        if (!isMinimized) {
+            makeResizable(popup); // 핸들로 크기 조절
         }
 
+        // 초기화 및 이벤트 연결
+        setTimeout(() => {
+            updateGuildCollectButton(totalNeed);
+            attachPopupEventListeners(guildStatus, villageStatus);
+            updateLogDisplay();
+
+            // 플레이스홀더 체크
+            const detailView = document.getElementById('detail-view');
+            if(detailView && !detailView.innerHTML.trim()) {
+                detailView.innerHTML = `
+                    <div class="empty-placeholder">
+                        <div class="empty-icon">🛡️</div>
+                        <div class="empty-text">왼쪽 목록에서<br>길드나 마을을 선택하세요</div>
+                    </div>
+                `;
+            }
+        }, 50);
+    }
+    // 이벤트 리스너 연결 헬퍼 함수
+    function attachPopupEventListeners(guildStatus, villageStatus) {
+        // 도움말
+        const helpBtn = document.getElementById('help-btn');
+        if (helpBtn) helpBtn.onclick = () => {
+            addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
+            addLog('📖 전쟁 트래커 사용 방법', 'success');
+            addLog('1️⃣ 길드 정보가 없으면 "길드수집" 버튼을 눌러주세요.', 'info');
+            addLog('2️⃣ 전쟁 로그 화면에서 "더보기"를 눌러 로그를 확보하세요.', 'info');
+            addLog('3️⃣ "로그 수동" 또는 "▶ 자동"을 눌러 수집을 시작합니다.', 'info');
+            addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
+        };
+
+        // 초기화
+        const resetBtn = document.getElementById('reset-data-btn');
+        if (resetBtn) resetBtn.onclick = () => {
+            if (confirm('모든 데이터를 초기화하시겠습니까?')) resetStoredData();
+        };
+
+        // 수동 수집
         const manualBtn = document.getElementById('manual-collect-btn');
-        if (manualBtn) {
-            manualBtn.addEventListener('click', () => {
-                addLog('수동 수집 시작', 'info');
+        if (manualBtn) manualBtn.onclick = () => {
+            const guildData = loadGuildData();
+            if (!guildData) {
+                addLog('⚠️ 길드 정보가 없습니다. 먼저 길드 수집을 해주세요.', 'error');
+                return;
+            }
+            addLog('수동 수집 실행', 'info');
+            collectAndRender();
+        };
+
+        // 자동 수집
+        const autoBtn = document.getElementById('auto-collect-btn');
+        if (autoBtn) autoBtn.onclick = () => {
+            if (!isCollecting) {
                 const guildData = loadGuildData();
                 if (!guildData) {
-                    addLog('⚠️ 길드 정보가 없습니다. 로그 자동 수집을 시작할 수 없습니다.', 'error');
-                    addLog('💡 먼저 "길드 자동 수집" 버튼을 눌러 길드 정보를 수집하세요.', 'info');
-
-                    return; // 버튼 상태 변경 없이 종료
+                    addLog('⚠️ 길드 정보가 없습니다.', 'error');
+                    return;
                 }
-                collectAndRender();
-            });
-        }
+                startCollection();
+                autoBtn.innerHTML = '⏹ 중지';
+                autoBtn.style.background = '#ef5350'; // Red
+            } else {
+                stopCollection();
+                autoBtn.innerHTML = '▶ 자동';
+                autoBtn.style.background = '#388e3c'; // Green
+            }
+            // 헤더 갱신 트리거
+            const headerTitle = document.querySelector('#war-status-header h2');
+            if(headerTitle) headerTitle.innerHTML = `오늘의 전쟁 현황 ${isCollecting ? '<span style="color:#4caf50; font-size:12px;">● 수집중</span>' : ''}`;
+        };
 
-        const autoBtn = document.getElementById('auto-collect-btn');
-        if (autoBtn) {
-            autoBtn.addEventListener('click', () => {
-                if (!isCollecting) {
-                    // 길드 정보 체크 먼저
-                    const guildData = loadGuildData();
-                    if (!guildData) {
-                        addLog('⚠️ 길드 정보가 없습니다. 로그 자동 수집을 시작할 수 없습니다.', 'error');
-                        addLog('💡 먼저 "길드 자동 수집" 버튼을 눌러 길드 정보를 수집하세요.', 'info');
-
-                        autoBtn.textContent = '자동 수집 중지';
-                        autoBtn.style.background = '#ff9800';
-                        return; // 버튼 상태 변경 없이 종료
-                    }
-
-                    // 자동 수집 시작
-                    startCollection();
-
-                    // 버튼 UI 즉시 업데이트
-                    autoBtn.textContent = '자동 수집 중지';
-                    autoBtn.style.background = '#ff9800';
-
-                    const header = document.querySelector('#war-status-header h2');
-                    if (header) {
-                        header.textContent = '오늘의 전쟁 현황 (자동 수집 중...)';
-                    }
-                } else {
-                    // 자동 수집 중지
-                    stopCollection();
-
-                    // 버튼 UI 즉시 업데이트
-                    autoBtn.textContent = '로그 자동 수집';
-                    autoBtn.style.background = '#4caf50';
-
-                    const header = document.querySelector('#war-status-header h2');
-                    if (header) {
-                        header.textContent = '오늘의 전쟁 현황';
-                    }
-                }
-            });
-        }
-
-        document.getElementById('minimize-btn').addEventListener('click', () => {
+        // 최소화
+        document.getElementById('minimize-btn').onclick = () => {
+            const popup = document.getElementById('war-status-popup');
             popup.remove();
             isPopupOpen = false;
+            createFloatingButton(); // 플로팅 버튼 복구
+        };
 
-            const existingBtn = document.getElementById('war-tracker-btn');
-            if (existingBtn) {
-                existingBtn.style.display = 'flex';
-            } else {
-                createFloatingButton();
-            }
-        });
+        // 뷰 전환 탭
+        const guildTab = document.getElementById('guild-view-btn');
+        const villageTab = document.getElementById('village-view-btn');
 
-        if (!isMinimized) {
-            document.getElementById('guild-view-btn').addEventListener('click', () => {
+        if (guildTab && villageTab) {
+            guildTab.onclick = () => {
                 currentView = 'guild';
                 selectedGuild = null;
                 selectedVillage = null;
+                updateCardSelection(guildStatus, villageStatus);
+                guildTab.classList.add('active');
+                villageTab.classList.remove('active');
+            };
 
-                const savedLogs = loadStoredLogs();
-                processAndDisplayLogs(savedLogs.length > 0 ? savedLogs : []);
-            });
-
-            document.getElementById('village-view-btn').addEventListener('click', () => {
+            villageTab.onclick = () => {
                 currentView = 'village';
                 selectedGuild = null;
                 selectedVillage = null;
-
-                const savedLogs = loadStoredLogs();
-                processAndDisplayLogs(savedLogs.length > 0 ? savedLogs : []);
-            });
-
-            attachCardListeners(guildStatus, villageStatus);
-            updateLogDisplay();
+                updateCardSelection(guildStatus, villageStatus);
+                villageTab.classList.add('active');
+                guildTab.classList.remove('active');
+            };
         }
+
+        attachCardListeners(guildStatus, villageStatus);
+        attachTableSortListeners(guildStatus, villageStatus);
     }
 
     // =====================================================
